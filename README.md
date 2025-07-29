@@ -8,7 +8,7 @@
 
 Picture this: It's 7 AM, and you're already drowning. Your Twitter feed is exploding with crypto market updates, your Telegram channels are buzzing with AI breakthroughs, and your RSS reader shows 847 unread articles. Sound familiar?
 
-In today's hyper-connected world, staying informed isn't just challenging—it's becoming impossible. The average knowledge worker consumes the equivalent of 174 newspapers worth of information daily, yet retains less than 1% of it. Meanwhile, the most successful investors, entrepreneurs, and technologists seem to have a crystal ball, always staying ahead of trends.
+In today's hyper-connected world, staying informed isn't just challenging—it's becoming impossible. The average person consumes numerous newspapers worth of information daily, yet retains less than 1% of it. Meanwhile, the most successful investors, entrepreneurs, and technologists seem to have a crystal ball, always staying ahead of trends.
 
 **What if I told you that crystal ball is actually a system?**
 
@@ -22,7 +22,7 @@ Today, we're going to build something extraordinary: an AI-powered content aggre
 
 ## What You'll Build: The CL Digest Bot
 
-We're building the **ComputeLabs Digest Bot**—a sophisticated system that transformed how Compute Labs stays ahead in the rapidly evolving AI and crypto landscape. This isn't a toy project; it's a real system processing thousands of data points daily and generating insights that drive business decisions.
+We're building the **Compute Labs Digest Bot**—a sophisticated system that transformed how Compute Labs stays ahead in the rapidly evolving AI and crypto landscape. This isn't a toy project; it's a real system processing thousands of data points daily and generating insights that drive business decisions.
 
 ### 🎯 Key Features We'll Implement
 
@@ -107,7 +107,7 @@ Now let's install the packages that will power our system. Each one serves a spe
 
 ```bash
 # AI and Language Models
-npm install @ai-sdk/openai @ai-sdk/anthropic ai
+npm install @ai-sdk/openai @ai-sdk/anthropic ai dotenv
 
 # Database and Backend
 npm install @supabase/supabase-js @supabase/auth-helpers-nextjs
@@ -156,10 +156,7 @@ Let's set up a directory structure that will scale with our project:
 
 ```bash
 # Create our core directories
-mkdir -p {lib,types,config,utils,scripts/{db,fetch,digest,test}}
-
-# Create the directory structure
-tree -d
+mkdir -p lib/{ai,x-api,telegram,rss,slack,supabase,logger} types config utils scripts/{db,fetch,digest,test} docs
 ```
 
 Your project should now look like this:
@@ -233,6 +230,7 @@ cat > scripts/tsconfig.json << 'EOF'
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "module": "commonjs",
+    "moduleResolution": "node",
     "target": "es2020",
     "noEmit": false,
     "outDir": "./dist",
@@ -282,7 +280,7 @@ Let's add some useful scripts to our `package.json`. Add these to the `scripts` 
 Create your environment file:
 
 ```bash
-cp .env.example .env.local
+touch .env.local
 ```
 
 Add this to your `.env.local`:
