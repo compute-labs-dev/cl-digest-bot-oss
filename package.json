@@ -17,6 +17,7 @@
     "@slack/web-api": "^7.9.3",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/supabase-js": "^2.53.0",
+    "@types/pg": "^8.15.5",
     "ai": "^4.3.19",
     "cli-progress": "^3.12.0",
     "date-fns": "^4.1.0",
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/cli-progress": "^3.11.6",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^20",
     "@types/node-fetch": "^2.6.12",

@@ -1,0 +1,11 @@
+{"level":"info","message":"Started: Testing Database Setup","service":"cl-digest-bot","timestamp":"2025-07-29T21:08:16.242Z","total":6}
+{"level":"info","message":"✅ Database connection successful","service":"cl-digest-bot","timestamp":"2025-07-29T21:08:17.073Z"}
+{"error":"Missing tables: sources,tweets,telegram_messages,rss_articles,digests","level":"error","message":"Database test failed","service":"cl-digest-bot","stack":"Error: Missing tables: sources,tweets,telegram_messages,rss_articles,digests\n    at testDatabaseSetup (/Users/matt/Developer/computelabs/cl-digest-bot-oss/scripts/db/test-connection.ts:39:13)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)","timestamp":"2025-07-29T21:08:17.239Z"}
+{"level":"info","message":"Started: Testing Database Setup","service":"cl-digest-bot","timestamp":"2025-07-29T21:10:49.325Z","total":6}
+{"level":"info","message":"✅ Database connection successful","service":"cl-digest-bot","timestamp":"2025-07-29T21:10:49.739Z"}
+{"level":"info","message":"✅ All required tables exist","service":"cl-digest-bot","tables":["sources","tweets","telegram_messages","rss_articles","digests"],"timestamp":"2025-07-29T21:10:50.095Z"}
+{"id":"68c5c7fd-b7ed-41b4-b38c-ec10f6a21d1c","level":"info","message":"✅ Test insert successful","service":"cl-digest-bot","timestamp":"2025-07-29T21:10:50.247Z"}
+{"level":"info","message":"✅ Test query successful","name":"test_source","service":"cl-digest-bot","timestamp":"2025-07-29T21:10:50.341Z"}
+{"level":"info","message":"✅ Test update successful","service":"cl-digest-bot","timestamp":"2025-07-29T21:10:50.442Z"}
+{"level":"info","message":"✅ Test cleanup successful","service":"cl-digest-bot","timestamp":"2025-07-29T21:10:50.717Z"}
+{"duration_formatted":"1.40s","duration_ms":1395,"level":"info","message":"Database setup test completed successfully!","service":"cl-digest-bot","timestamp":"2025-07-29T21:10:50.718Z"}
