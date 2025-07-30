@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "script": "ts-node -P scripts/tsconfig.json",
+    "test:advanced-ai": "npm run script scripts/test/test-advanced-ai.ts",
     "test:ai": "npm run script scripts/test/test-ai.ts",
     "test:config": "npm run script scripts/test/test-config.ts",
     "test:db": "npm run script scripts/db/test-connection.ts",
