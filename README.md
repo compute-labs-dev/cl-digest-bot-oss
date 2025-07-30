@@ -1,2063 +1,547 @@
-# Chapter 2: Building Your Data Foundation - Database & Core Structure
+# Chapter 3: Smart Configuration - Managing Settings Like a Pro
 
-*"Data is the new oil, but like oil, it's only valuable when refined." - Clive Humby*
+*"Complexity is the enemy of execution." - Tony Robbins*
 
 ---
 
-Now that we have our development environment set up, it's time to build the backbone of our system: the database layer and core data structures. Think of this chapter as constructing the foundation and plumbing for a skyscraper—not the most glamorous work, but absolutely critical for everything that follows.
+You know what separates a weekend project from a production system? **Configuration management.** 
 
-In this chapter, we'll create a robust data layer that can handle thousands of tweets, Telegram messages, and RSS articles while maintaining lightning-fast query performance. We'll also build a professional logging system that will be your best friend when debugging issues at 2 AM.
+Picture this: You've built an amazing content aggregator, but now you need to tweak how many tweets to fetch from each account, adjust cache durations, or change quality thresholds. In most projects, you'd be hunting through dozens of files, changing hardcoded values, and hoping you didn't break anything.
 
-## 🗄️ Setting Up Supabase: Your PostgreSQL Powerhouse
+We're going to do better. Much better.
 
-### Why Supabase Over Other Solutions?
+In this chapter, we'll build a **centralized configuration system** that's so clean and intuitive, you'll wonder why every project doesn't work this way. By the end, you'll be able to configure your entire system from one place, with full TypeScript safety and zero guesswork.
 
-Before we dive in, let's talk about why we chose Supabase:
+## 🎯 What We're Building
 
-- **PostgreSQL under the hood**: Real SQL, not a NoSQL compromise
-- **Real-time subscriptions**: Watch data change live
-- **Built-in authentication**: User management without the headache
-- **Edge functions**: Serverless functions that scale
-- **Generous free tier**: Perfect for development and small projects
+A configuration system that:
+- **Centralizes all settings** in one place
+- **Provides sensible defaults** that work out of the box  
+- **Allows per-source overrides** (some Twitter accounts need different settings)
+- **Validates configuration** at startup to catch errors early
+- **Scales beautifully** as you add new data sources
 
-### Creating Your Supabase Project
+Let's start simple and build up.
 
-1. **Sign up at [supabase.com](https://supabase.com)**
-2. **Create a new project:**
-   - Name: `cl-digest-bot`
-   - Database password: Generate a strong one (save it!)
-   - Region: Choose the closest to your users
+## 🏗️ The Foundation: Basic Types
 
-3. **Grab your credentials** from the project settings:
-   - Project URL
-   - Anon public key
-   - Service role key (keep this secret!)
-
-4. **Update your `.env.local`:**
-
-```env
-# Add these to your existing .env.local
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-```
-
-### 🏗️ Database Schema: Designing for Scale
-
-Let's create our database tables. We need to store:
-- **Tweets** with engagement metrics
-- **Telegram messages** from various channels
-- **RSS articles** with metadata
-- **Generated digests** and their configurations
-- **Source accounts** for each platform
-
-Create this file to define our schema:
-
-```sql
--- scripts/db/schema.sql
-
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- Sources table: Track all our data sources
-CREATE TABLE sources (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('twitter', 'telegram', 'rss')),
-    url VARCHAR(500),
-    username VARCHAR(255),
-    is_active BOOLEAN DEFAULT true,
-    config JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Tweets table: Store Twitter/X data with engagement metrics
-CREATE TABLE tweets (
-    id VARCHAR(255) PRIMARY KEY, -- Twitter's tweet ID
-    text TEXT NOT NULL,
-    author_id VARCHAR(255) NOT NULL,
-    author_username VARCHAR(255) NOT NULL,
-    author_name VARCHAR(255),
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    
-    -- Engagement metrics
-    retweet_count INTEGER DEFAULT 0,
-    like_count INTEGER DEFAULT 0,
-    reply_count INTEGER DEFAULT 0,
-    quote_count INTEGER DEFAULT 0,
-    
-    -- Our computed fields
-    engagement_score INTEGER DEFAULT 0,
-    quality_score FLOAT DEFAULT 0,
-    
-    -- Metadata
-    source_url VARCHAR(500),
-    raw_data JSONB,
-    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    -- Indexes for performance
-    CONSTRAINT tweets_engagement_score_check CHECK (engagement_score >= 0)
-);
-
--- Telegram messages table
-CREATE TABLE telegram_messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    message_id VARCHAR(255) NOT NULL,
-    channel_username VARCHAR(255) NOT NULL,
-    channel_title VARCHAR(255),
-    text TEXT NOT NULL,
-    author VARCHAR(255),
-    message_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    
-    -- Message metadata
-    views INTEGER DEFAULT 0,
-    forwards INTEGER DEFAULT 0,
-    replies INTEGER DEFAULT 0,
-    
-    -- Our processing
-    quality_score FLOAT DEFAULT 0,
-    source_url VARCHAR(500),
-    raw_data JSONB,
-    fetched_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    -- Unique constraint to prevent duplicates
-    UNIQUE(message_id, channel_username)
-);
-
--- RSS articles table
-CREATE TABLE rss_articles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(500) NOT NULL,
-    link VARCHAR(500) NOT NULL UNIQUE,
-    description TEXT,
-    content TEXT,
-    author VARCHAR(255),
-    published_at TIMESTAMP WITH TIME ZONE,
-    
-    -- Source information
-    feed_url VARCHAR(500) NOT NULL,
-    feed_title VARCHAR(255),
-    
-    -- Our processing
-    quality_score FLOAT DEFAULT 0,
-    word_count INTEGER DEFAULT 0,
-    raw_data JSONB,
-    fetched_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Digests table: Store generated summaries
-CREATE TABLE digests (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(500) NOT NULL,
-    summary TEXT NOT NULL,
-    content JSONB NOT NULL, -- Structured digest data
-    
-    -- Generation metadata
-    ai_model VARCHAR(100),
-    ai_provider VARCHAR(50),
-    token_usage JSONB,
-    
-    -- Source data window
-    data_from TIMESTAMP WITH TIME ZONE NOT NULL,
-    data_to TIMESTAMP WITH TIME ZONE NOT NULL,
-    
-    -- Publishing
-    published_to_slack BOOLEAN DEFAULT false,
-    slack_message_ts VARCHAR(255),
-    
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create indexes for better query performance
-CREATE INDEX idx_tweets_created_at ON tweets(created_at DESC);
-CREATE INDEX idx_tweets_author_username ON tweets(author_username);
-CREATE INDEX idx_tweets_engagement_score ON tweets(engagement_score DESC);
-
-CREATE INDEX idx_telegram_messages_channel ON telegram_messages(channel_username);
-CREATE INDEX idx_telegram_messages_date ON telegram_messages(message_date DESC);
-
-CREATE INDEX idx_rss_articles_published ON rss_articles(published_at DESC);
-CREATE INDEX idx_rss_articles_feed ON rss_articles(feed_url);
-
-CREATE INDEX idx_digests_created ON digests(created_at DESC);
-
--- Create updated_at trigger function
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Apply the trigger to tables that need it
-CREATE TRIGGER update_sources_updated_at BEFORE UPDATE ON sources
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_digests_updated_at BEFORE UPDATE ON digests
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-```
-
-### 🔧 Setting Up the Database
-
-Now let's create a script to check and initialize our database. Due to Supabase's architecture, the most reliable way to set up tables is through their SQL Editor, but we'll create a helpful script that guides you through the process:
+First, let's define what each data source needs to configure:
 
 ```typescript
-// scripts/db/init-db.ts
-import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { config } from 'dotenv';
+// config/types.ts
 
-// Load environment variables
-config({ path: '.env.local' });
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('❌ Missing Supabase credentials in environment variables');
-  console.log('\nPlease create .env.local with:');
-  console.log('NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co');
-  console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key');
-  console.log('SUPABASE_SERVICE_ROLE_KEY=your_service_key');
-  process.exit(1);
+// Twitter/X account configuration
+export interface XAccountConfig {
+  tweetsPerRequest: number;    // How many tweets to fetch per API call (5-100)
+  maxPages: number;            // How many pages to paginate through
+  cacheHours: number;          // Hours before refreshing cached data
+  minTweetLength: number;      // Filter out short tweets
+  minEngagementScore: number;  // Filter out low-engagement tweets
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-async function main() {
-  console.log('🚀 Supabase Database Setup Tool\n');
-  
-  // Check which tables exist
-  const expectedTables = ['sources', 'tweets', 'telegram_messages', 'rss_articles', 'digests'];
-  const existingTables: string[] = [];
-  const missingTables: string[] = [];
-
-  console.log('🔍 Checking for existing tables...\n');
-
-  for (const tableName of expectedTables) {
-    try {
-      console.log(`Checking ${tableName}...`);
-      const { error } = await supabase
-        .from(tableName)
-        .select('*')
-        .limit(0);
-      
-      if (!error) {
-        existingTables.push(tableName);
-        console.log(`  ✅ ${tableName} exists`);
-      } else {
-        missingTables.push(tableName);
-        console.log(`  ❌ ${tableName} missing`);
-      }
-    } catch (err) {
-      missingTables.push(tableName);
-      console.log(`  ❌ ${tableName} missing (connection error)`);
-    }
-  }
-
-  console.log('\n📊 Database Status:');
-  console.log(`  ✅ Existing tables: ${existingTables.length}/${expectedTables.length}`);
-  console.log(`  ❌ Missing tables: ${missingTables.length}`);
-
-  if (missingTables.length === 0) {
-    console.log('\n🎉 All tables exist! Your database is ready.');
-    
-    // Quick test
-    try {
-      const { data, error } = await supabase
-        .from('sources')
-        .select('count');
-      
-      if (!error) {
-        console.log('✅ Database operations are working correctly');
-      }
-    } catch (err) {
-      console.log('⚠️  Tables exist but there might be permission issues');
-    }
-    
-    return;
-  }
-
-  // Show setup instructions
-  console.log('\n🔧 Setup Required!');
-  console.log('\nTo create the missing tables:');
-  console.log('\n📝 Method 1 - Supabase Dashboard (Recommended):');
-  console.log('  1. Go to https://supabase.com/dashboard');
-  console.log('  2. Select your project');
-  console.log('  3. Click "SQL Editor" in the left sidebar');
-  console.log('  4. Copy the SQL below and paste it');
-  console.log('  5. Click "Run"');
-  
-  console.log('\n📄 SQL to copy and paste:');
-  console.log('=' + '='.repeat(80));
-  
-  try {
-    const schemaPath = join(__dirname, 'schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    console.log(schema);
-  } catch (err) {
-    console.log('❌ Could not read schema.sql file');
-    console.log('Make sure scripts/db/schema.sql exists');
-  }
-  
-  console.log('=' + '='.repeat(80));
-  
-  console.log('\n✅ After running the SQL, run this script again to verify!');
+// Telegram channel configuration  
+export interface TelegramChannelConfig {
+  messagesPerChannel: number;  // How many messages to fetch
+  cacheHours: number;          // Cache duration
+  minMessageLength: number;    // Filter short messages
 }
 
-main().catch((error) => {
-  console.error('\n❌ Script failed:', error.message);
-  console.log('\nTroubleshooting:');
-  console.log('1. Check your .env.local file has valid Supabase credentials');
-  console.log('2. Verify your Supabase project is active');
-  console.log('3. Make sure your service role key is correct');
-  process.exit(1);
-});
+// RSS feed configuration
+export interface RssFeedConfig {
+  articlesPerFeed: number;     // How many articles to fetch
+  cacheHours: number;          // Cache duration  
+  minArticleLength: number;    // Filter short articles
+  maxArticleLength: number;    // Trim very long articles
+}
 ```
 
-### 🚀 Database Setup Process
+**Why these specific settings?** Each one solves a real problem:
+- **tweetsPerRequest**: Twitter API limits, but more = fewer API calls
+- **cacheHours**: Balance between freshness and API costs
+- **minEngagementScore**: Quality filter - ignore tweets nobody cared about
+- **maxArticleLength**: Prevent token overflow in AI processing
 
-**Step 1: Run the setup script to check your database:**
+## 📊 The Configuration Hub
 
-```bash
-npm run script scripts/db/init-db.ts
-```
-
-**Step 2: If tables are missing, use the Supabase SQL Editor:**
-
-1. **Go to your Supabase dashboard** at [supabase.com/dashboard](https://supabase.com/dashboard)
-2. **Select your project**
-3. **Click "SQL Editor"** in the left sidebar
-4. **Copy the SQL output** from the script above
-5. **Paste it in the SQL Editor** and click "Run"
-
-**Step 3: Verify the setup:**
-
-```bash
-npm run script scripts/db/init-db.ts
-```
-
-You should see: `🎉 All tables exist! Your database is ready.`
-
-### 💡 Why This Approach?
-
-**Supabase's architecture** makes direct SQL execution through their JavaScript client challenging for schema creation. The most reliable approach is:
-
-- ✅ **SQL Editor**: Direct database access with full permissions
-- ✅ **Verification Script**: Ensures everything is set up correctly  
-- ✅ **Error-free**: No complex connection handling or permission issues
-- ✅ **Reproducible**: Easy to re-run and verify
-
-## 📝 TypeScript Types: Type Safety for Your Data
-
-Now let's create TypeScript interfaces that match our database schema. This gives us compile-time safety and excellent IDE support:
+Now let's create our main configuration file. This is where the magic happens:
 
 ```typescript
-// types/database.ts
+// config/data-sources-config.ts
 
-export interface Database {
-  public: {
-    Tables: {
-      sources: {
-        Row: Source;
-        Insert: Omit<Source, 'id' | 'created_at' | 'updated_at'> & {
-          id?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: Partial<Source>;
-      };
-      tweets: {
-        Row: Tweet;
-        Insert: Omit<Tweet, 'processed_at'> & {
-          processed_at?: string;
-        };
-        Update: Partial<Tweet>;
-      };
-      telegram_messages: {
-        Row: TelegramMessage;
-        Insert: Omit<TelegramMessage, 'id' | 'fetched_at'> & {
-          id?: string;
-          fetched_at?: string;
-        };
-        Update: Partial<TelegramMessage>;
-      };
-      rss_articles: {
-        Row: RSSArticle;
-        Insert: Omit<RSSArticle, 'id' | 'fetched_at'> & {
-          id?: string;
-          fetched_at?: string;
-        };
-        Update: Partial<RSSArticle>;
-      };
-      digests: {
-        Row: Digest;
-        Insert: Omit<Digest, 'id' | 'created_at' | 'updated_at'> & {
-          id?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: Partial<Digest>;
-      };
-    };
-  };
+import { XAccountConfig, TelegramChannelConfig, RssFeedConfig } from './types';
+
+/**
+ * Twitter/X Configuration
+ * 
+ * Provides defaults and per-account overrides for Twitter data collection
+ */
+export const xConfig = {
+  // Global defaults - work for 90% of accounts
+  defaults: {
+    tweetsPerRequest: 100,      // Max allowed by Twitter API
+    maxPages: 2,                // 200 tweets total per account
+    cacheHours: 5,              // Refresh every 5 hours
+    minTweetLength: 50,         // Skip very short tweets
+    minEngagementScore: 5,      // Skip tweets with <5 total engagement
+  } as XAccountConfig,
+  
+  // Special cases - accounts that need different settings
+  accountOverrides: {
+    // High-volume accounts - get more data
+    'elonmusk': { maxPages: 5 },
+    'unusual_whales': { maxPages: 5 },
+    
+    // News accounts - shorter cache for breaking news
+    'breakingnews': { cacheHours: 2 },
+    
+    // Technical accounts - allow shorter tweets (code snippets)
+    'dan_abramov': { minTweetLength: 20 },
+  } as Record<string, Partial<XAccountConfig>>
+};
+
+/**
+ * Telegram Configuration
+ */
+export const telegramConfig = {
+  defaults: {
+    messagesPerChannel: 50,     // 50 messages per channel
+    cacheHours: 5,              // Same as Twitter
+    minMessageLength: 30,       // Skip very short messages
+  } as TelegramChannelConfig,
+  
+  channelOverrides: {
+    // High-activity channels
+    'financial_express': { messagesPerChannel: 100 },
+    
+    // News channels - fresher data
+    'cryptonews': { cacheHours: 3 },
+  } as Record<string, Partial<TelegramChannelConfig>>
+};
+
+/**
+ * RSS Configuration  
+ */
+export const rssConfig = {
+  defaults: {
+    articlesPerFeed: 20,        // 20 articles per feed
+    cacheHours: 6,              // RSS updates less frequently
+    minArticleLength: 200,      // Skip very short articles
+    maxArticleLength: 5000,     // Trim long articles to save tokens
+  } as RssFeedConfig,
+  
+  feedOverrides: {
+    // High-volume tech blogs
+    'https://techcrunch.com/feed/': { articlesPerFeed: 10 },
+    
+    // Academic feeds - longer cache OK
+    'https://arxiv.org/rss/cs.AI': { cacheHours: 12 },
+  } as Record<string, Partial<RssFeedConfig>>
+};
+
+// Helper functions to get configuration for specific sources
+export function getXAccountConfig(username: string): XAccountConfig {
+  const override = xConfig.accountOverrides[username] || {};
+  return { ...xConfig.defaults, ...override };
 }
 
-// Individual table types
-export interface Source {
-  id: string;
-  name: string;
-  type: 'twitter' | 'telegram' | 'rss';
-  url?: string;
-  username?: string;
-  is_active: boolean;
-  config: Record<string, any>;
-  created_at: string;
-  updated_at: string;
+export function getTelegramChannelConfig(channelName: string): TelegramChannelConfig {
+  const override = telegramConfig.channelOverrides[channelName] || {};
+  return { ...telegramConfig.defaults, ...override };
 }
 
-export interface Tweet {
-  id: string; // Twitter's tweet ID
-  text: string;
-  author_id: string;
-  author_username: string;
-  author_name?: string;
-  created_at: string;
-  
-  // Engagement metrics
-  retweet_count: number;
-  like_count: number;
-  reply_count: number;
-  quote_count: number;
-  
-  // Computed fields
-  engagement_score: number;
-  quality_score: number;
-  
-  // Metadata
-  source_url?: string;
-  raw_data?: Record<string, any>;
-  processed_at: string;
+export function getRssFeedConfig(feedUrl: string): RssFeedConfig {
+  const override = rssConfig.feedOverrides[feedUrl] || {};
+  return { ...rssConfig.defaults, ...override };
 }
+```
 
-export interface TelegramMessage {
-  id: string;
-  message_id: string;
-  channel_username: string;
-  channel_title?: string;
-  text: string;
-  author?: string;
-  message_date: string;
-  
-  // Engagement
-  views: number;
-  forwards: number;
-  replies: number;
-  
-  // Processing
-  quality_score: number;
-  source_url?: string;
-  raw_data?: Record<string, any>;
-  fetched_at: string;
-}
+**What makes this powerful?**
 
-export interface RSSArticle {
-  id: string;
-  title: string;
-  link: string;
-  description?: string;
-  content?: string;
-  author?: string;
-  published_at?: string;
-  
-  // Source
-  feed_url: string;
-  feed_title?: string;
-  
-  // Processing
-  quality_score: number;
-  word_count: number;
-  raw_data?: Record<string, any>;
-  fetched_at: string;
-}
+1. **Sensible defaults** - Works immediately without any configuration
+2. **Easy overrides** - Just add an account/channel to the overrides object
+3. **Type safety** - TypeScript catches configuration errors at compile time
+4. **Helper functions** - Simple API to get config anywhere in your code
 
-export interface Digest {
-  id: string;
-  title: string;
-  summary: string;
-  content: DigestContent;
-  
-  // AI metadata
-  ai_model?: string;
-  ai_provider?: string;
-  token_usage?: TokenUsage;
-  
-  // Data scope
-  data_from: string;
-  data_to: string;
-  
-  // Publishing
-  published_to_slack: boolean;
-  slack_message_ts?: string;
-  
-  created_at: string;
-  updated_at: string;
-}
+## 🧪 Configuration Validation
 
-// Supporting types
-export interface DigestContent {
-  sections: DigestSection[];
-  tweets: TweetDigestItem[];
-  articles: ArticleDigestItem[];
-  telegram_messages?: TelegramDigestItem[];
-  metadata: {
-    total_sources: number;
-    processing_time_ms: number;
-    model_config: any;
-  };
-}
+Let's add validation to catch configuration errors early:
 
-export interface DigestSection {
-  title: string;
-  summary: string;
-  key_points: string[];
-  source_count: number;
-}
+```typescript
+// config/validator.ts
 
-export interface TweetDigestItem {
-  id: string;
-  text: string;
-  author: string;
-  url: string;
-  engagement: {
-    likes: number;
-    retweets: number;
-    replies: number;
-  };
-  relevance_score: number;
-}
+import { XAccountConfig, TelegramChannelConfig, RssFeedConfig } from './types';
+import { xConfig, telegramConfig, rssConfig } from './data-sources-config';
 
-export interface ArticleDigestItem {
-  title: string;
-  summary: string;
-  url: string;
+interface ValidationError {
   source: string;
-  published_at: string;
-  relevance_score: number;
+  field: string;
+  value: any;
+  message: string;
 }
 
-export interface TelegramDigestItem {
-  text: string;
-  channel: string;
-  author?: string;
-  url: string;
-  date: string;
-  relevance_score: number;
-}
+export class ConfigValidator {
+  private errors: ValidationError[] = [];
 
-export interface TokenUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  reasoning_tokens?: number;
-}
-```
-
-## 🔌 Supabase Client Setup
-
-Let's create our database client with proper configuration:
-
-```typescript
-// lib/supabase/supabase-client.ts
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../../types/database';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-// Create the client with proper typing
-export const supabase = createClient<Database>(
-  supabaseUrl,
-  supabaseAnonKey,
-  {
-    auth: {
-      persistSession: false, // We're not using auth for now
-    },
-    db: {
-      schema: 'public',
-    },
-    global: {
-      headers: {
-        'X-Client-Info': 'cl-digest-bot',
-      },
-    },
-  }
-);
-
-// Utility function to check connection
-export async function testConnection(): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from('sources')
-      .select('count')
-      .limit(1);
+  validateXConfig(): ValidationError[] {
+    this.errors = [];
     
-    return !error;
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    return false;
-  }
-}
-```
-
-## 📊 Professional Logging: Your Debugging Superpower
-
-Now let's create a robust logging system using Winston. This will be invaluable for monitoring our system in production:
-
-```typescript
-// lib/logger/index.ts
-import winston from 'winston';
-import { join } from 'path';
-
-// Define log levels and colors
-const logLevels = {
-  error: 0,
-  warn: 1,
-  info: 2,
-  http: 3,
-  debug: 4,
-};
-
-const logColors = {
-  error: 'red',
-  warn: 'yellow', 
-  info: 'green',
-  http: 'magenta',
-  debug: 'white',
-};
-
-// Tell winston about our colors
-winston.addColors(logColors);
-
-// Custom format for console output
-const consoleFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-  winston.format.colorize({ all: true }),
-  winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}`
-  )
-);
-
-// Format for file output (JSON for easier parsing)
-const fileFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.errors({ stack: true }),
-  winston.format.json()
-);
-
-// Create the logger
-const logger = winston.createLogger({
-  level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
-  levels: logLevels,
-  format: fileFormat,
-  defaultMeta: { service: 'cl-digest-bot' },
-  transports: [
-    // Write all logs with importance level of 'error' or less to error.log
-    new winston.transports.File({
-      filename: join(process.cwd(), 'logs', 'error.log'),
-      level: 'error',
-    }),
-    // Write all logs to combined.log
-    new winston.transports.File({
-      filename: join(process.cwd(), 'logs', 'combined.log'),
-    }),
-  ],
-});
-
-// Add console output for development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
-    })
-  );
-}
-
-// Create logs directory if it doesn't exist
-import { mkdirSync } from 'fs';
-try {
-  mkdirSync(join(process.cwd(), 'logs'), { recursive: true });
-} catch (error) {
-  // Directory already exists, ignore
-}
-
-export default logger;
-
-// Helper functions for common log patterns
-export const logError = (message: string, error?: any, metadata?: any) => {
-  logger.error(message, { error: error?.message || error, stack: error?.stack, ...metadata });
-};
-
-export const logInfo = (message: string, metadata?: any) => {
-  logger.info(message, metadata);
-};
-
-export const logDebug = (message: string, metadata?: any) => {
-  logger.debug(message, metadata);
-};
-
-export const logWarning = (message: string, metadata?: any) => {
-  logger.warn(message, metadata);
-};
-```
-
-## 📈 Progress Tracking: Visual Feedback for Long Operations
-
-Let's create a progress tracking system that integrates with our logging:
-
-```typescript
-// utils/progress.ts
-import cliProgress from 'cli-progress';
-import logger from '../lib/logger';
-
-export interface ProgressConfig {
-  total: number;
-  label: string;
-  showPercentage?: boolean;
-  showETA?: boolean;
-}
-
-export class ProgressTracker {
-  private bar: cliProgress.SingleBar | null = null;
-  private startTime: number = 0;
-  private label: string = '';
-
-  constructor(config: ProgressConfig) {
-    this.label = config.label;
-    this.startTime = Date.now();
-
-    // Create progress bar with custom format
-    this.bar = new cliProgress.SingleBar({
-      format: `${config.label} [{bar}] {percentage}% | ETA: {eta}s | {value}/{total}`,
-      hideCursor: true,
-      barCompleteChar: '█',
-      barIncompleteChar: '░',
-      clearOnComplete: false,
-      stopOnComplete: true,
-    }, cliProgress.Presets.shades_classic);
-
-    this.bar.start(config.total, 0);
-    logger.info(`Started: ${config.label}`, { total: config.total });
-  }
-
-  update(current: number, data?: any): void {
-    if (this.bar) {
-      this.bar.update(current, data);
-    }
-  }
-
-  increment(data?: any): void {
-    if (this.bar) {
-      this.bar.increment(data);
-    }
-  }
-
-  complete(message?: string): void {
-    if (this.bar) {
-      this.bar.stop();
-    }
-
-    const duration = Date.now() - this.startTime;
-    const completionMessage = message || `Completed: ${this.label}`;
+    // Validate defaults
+    this.validateXAccountConfig('defaults', xConfig.defaults);
     
-    logger.info(completionMessage, { 
-      duration_ms: duration,
-      duration_formatted: `${(duration / 1000).toFixed(2)}s`
+    // Validate all overrides
+    Object.entries(xConfig.accountOverrides).forEach(([account, config]) => {
+      const fullConfig = { ...xConfig.defaults, ...config };
+      this.validateXAccountConfig(`account:${account}`, fullConfig);
     });
-
-    console.log(`✅ ${completionMessage} (${(duration / 1000).toFixed(2)}s)`);
+    
+    return this.errors;
   }
 
-  fail(error: string): void {
-    if (this.bar) {
-      this.bar.stop();
+  private validateXAccountConfig(source: string, config: XAccountConfig): void {
+    // Twitter API limits
+    if (config.tweetsPerRequest < 5 || config.tweetsPerRequest > 100) {
+      this.addError(source, 'tweetsPerRequest', config.tweetsPerRequest, 
+        'Must be between 5 and 100 (Twitter API limit)');
     }
+    
+    // Reasonable pagination limits
+    if (config.maxPages < 1 || config.maxPages > 10) {
+      this.addError(source, 'maxPages', config.maxPages, 
+        'Must be between 1 and 10 (avoid excessive API calls)');
+    }
+    
+    // Cache duration sanity check
+    if (config.cacheHours < 1 || config.cacheHours > 24) {
+      this.addError(source, 'cacheHours', config.cacheHours, 
+        'Must be between 1 and 24 hours');
+    }
+    
+    // Text length validation
+    if (config.minTweetLength < 1 || config.minTweetLength > 280) {
+      this.addError(source, 'minTweetLength', config.minTweetLength, 
+        'Must be between 1 and 280 characters');
+    }
+  }
 
-    const duration = Date.now() - this.startTime;
-    logger.error(`Failed: ${this.label}`, { error, duration_ms: duration });
-    console.log(`❌ Failed: ${this.label} - ${error}`);
+  validateTelegramConfig(): ValidationError[] {
+    this.errors = [];
+    
+    // Validate defaults
+    this.validateTelegramChannelConfig('defaults', telegramConfig.defaults);
+    
+    // Validate overrides
+    Object.entries(telegramConfig.channelOverrides).forEach(([channel, config]) => {
+      const fullConfig = { ...telegramConfig.defaults, ...config };
+      this.validateTelegramChannelConfig(`channel:${channel}`, fullConfig);
+    });
+    
+    return this.errors;
+  }
+
+  private validateTelegramChannelConfig(source: string, config: TelegramChannelConfig): void {
+    if (config.messagesPerChannel < 1 || config.messagesPerChannel > 500) {
+      this.addError(source, 'messagesPerChannel', config.messagesPerChannel, 
+        'Must be between 1 and 500');
+    }
+    
+    if (config.cacheHours < 1 || config.cacheHours > 24) {
+      this.addError(source, 'cacheHours', config.cacheHours, 
+        'Must be between 1 and 24 hours');
+    }
+  }
+
+  validateRssConfig(): ValidationError[] {
+    this.errors = [];
+    
+    this.validateRssFeedConfig('defaults', rssConfig.defaults);
+    
+    Object.entries(rssConfig.feedOverrides).forEach(([feed, config]) => {
+      const fullConfig = { ...rssConfig.defaults, ...config };
+      this.validateRssFeedConfig(`feed:${feed}`, fullConfig);
+    });
+    
+    return this.errors;
+  }
+
+  private validateRssFeedConfig(source: string, config: RssFeedConfig): void {
+    if (config.articlesPerFeed < 1 || config.articlesPerFeed > 100) {
+      this.addError(source, 'articlesPerFeed', config.articlesPerFeed, 
+        'Must be between 1 and 100');
+    }
+    
+    if (config.maxArticleLength <= config.minArticleLength) {
+      this.addError(source, 'maxArticleLength', config.maxArticleLength, 
+        'Must be greater than minArticleLength');
+    }
+  }
+
+  private addError(source: string, field: string, value: any, message: string): void {
+    this.errors.push({ source, field, value, message });
+  }
+
+  // Validate all configurations
+  validateAll(): ValidationError[] {
+    const allErrors = [
+      ...this.validateXConfig(),
+      ...this.validateTelegramConfig(),
+      ...this.validateRssConfig()
+    ];
+    
+    return allErrors;
   }
 }
 
-// Progress manager for multiple concurrent operations
-export class ProgressManager {
-  private trackers: Map<string, ProgressTracker> = new Map();
-
-  create(id: string, config: ProgressConfig): ProgressTracker {
-    const tracker = new ProgressTracker(config);
-    this.trackers.set(id, tracker);
-    return tracker;
-  }
-
-  get(id: string): ProgressTracker | undefined {
-    return this.trackers.get(id);
-  }
-
-  complete(id: string, message?: string): void {
-    const tracker = this.trackers.get(id);
-    if (tracker) {
-      tracker.complete(message);
-      this.trackers.delete(id);
-    }
-  }
-
-  fail(id: string, error: string): void {
-    const tracker = this.trackers.get(id);
-    if (tracker) {
-      tracker.fail(error);
-      this.trackers.delete(id);
-    }
-  }
-
-  cleanup(): void {
-    this.trackers.clear();
-  }
-}
-
-// Global progress manager instance
-export const progressManager = new ProgressManager();
+// Export a singleton validator
+export const configValidator = new ConfigValidator();
 ```
 
-## 🧪 Testing Your Database Setup
+## 🔧 Environment-Based Configuration
 
-Let's create a comprehensive test to verify everything is working:
+Let's add environment-specific settings for development vs production:
 
 ```typescript
-// scripts/db/test-connection.ts
-import { config } from 'dotenv';
-import { supabase, testConnection } from '../../lib/supabase/supabase-client';
-import logger, { logInfo, logError } from '../../lib/logger';
-import { ProgressTracker } from '../../utils/progress';
+// config/environment.ts
 
-// Load environment variables
+export interface EnvironmentConfig {
+  development: boolean;
+  apiTimeouts: {
+    twitter: number;
+    telegram: number;
+    rss: number;
+  };
+  logging: {
+    level: string;
+    enableConsole: boolean;
+  };
+  rateLimit: {
+    respectLimits: boolean;
+    bufferTimeMs: number;
+  };
+}
+
+function getEnvironmentConfig(): EnvironmentConfig {
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  return {
+    development: isDev,
+    
+    apiTimeouts: {
+      twitter: isDev ? 10000 : 30000,    // Shorter timeouts in dev
+      telegram: isDev ? 15000 : 45000,
+      rss: isDev ? 5000 : 15000,
+    },
+    
+    logging: {
+      level: isDev ? 'debug' : 'info',
+      enableConsole: isDev,
+    },
+    
+    rateLimit: {
+      respectLimits: true,
+      bufferTimeMs: isDev ? 1000 : 5000,  // Less aggressive in dev
+    }
+  };
+}
+
+export const envConfig = getEnvironmentConfig();
+```
+
+## 🧪 Testing Your Configuration
+
+Let's create a test to verify our configuration is working correctly:
+
+```typescript
+// scripts/test/test-config.ts
+
+import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-async function testDatabaseSetup() {
-  const progress = new ProgressTracker({
-    total: 6,
-    label: 'Testing Database Setup'
-  });
+import { 
+  getXAccountConfig, 
+  getTelegramChannelConfig, 
+  getRssFeedConfig 
+} from '../../config/data-sources-config';
+import { configValidator } from '../../config/validator';
+import { envConfig } from '../../config/environment';
+import logger from '../../lib/logger';
 
-  try {
-    // Test 1: Connection
-    progress.update(1, { test: 'Connection' });
-    const connected = await testConnection();
-    if (!connected) {
-      throw new Error('Failed to connect to database');
-    }
-    logInfo('✅ Database connection successful');
+async function testConfiguration() {
+  console.log('🔧 Testing Configuration System...\n');
 
-    // Test 2: Tables exist
-    progress.update(2, { test: 'Tables' });
-    const expectedTables = ['sources', 'tweets', 'telegram_messages', 'rss_articles', 'digests'];
-    const foundTables: string[] = [];
-    
-    for (const tableName of expectedTables) {
-      const { error } = await supabase
-        .from(tableName)
-        .select('*')
-        .limit(0);
-      
-      if (!error) {
-        foundTables.push(tableName);
-      }
-    }
-    
-    if (expectedTables.every(table => foundTables.includes(table))) {
-      logInfo('✅ All required tables exist', { tables: foundTables });
-    } else {
-      throw new Error(`Missing tables: ${expectedTables.filter(t => !foundTables.includes(t))}`);
-    }
+  // Test 1: Default configurations
+  console.log('1. Testing Default Configurations:');
+  
+  const defaultXConfig = getXAccountConfig('random_user');
+  console.log(`✅ X defaults: ${defaultXConfig.tweetsPerRequest} tweets, ${defaultXConfig.cacheHours}h cache`);
+  
+  const defaultTelegramConfig = getTelegramChannelConfig('random_channel');
+  console.log(`✅ Telegram defaults: ${defaultTelegramConfig.messagesPerChannel} messages, ${defaultTelegramConfig.cacheHours}h cache`);
+  
+  const defaultRssConfig = getRssFeedConfig('https://example.com/feed.xml');
+  console.log(`✅ RSS defaults: ${defaultRssConfig.articlesPerFeed} articles, ${defaultRssConfig.cacheHours}h cache`);
 
-    // Test 3: Insert test data
-    progress.update(3, { test: 'Insert' });
-    const { data: sourceData, error: insertError } = await supabase
-      .from('sources')
-      .insert({
-        name: 'test_source',
-        type: 'twitter',
-        username: 'test_user',
-        config: { test: true }
-      })
-      .select()
-      .single();
+  // Test 2: Override configurations
+  console.log('\n2. Testing Override Configurations:');
+  
+  const elonConfig = getXAccountConfig('elonmusk');
+  console.log(`✅ Elon override: ${elonConfig.maxPages} pages (default is 2)`);
+  
+  const newsConfig = getXAccountConfig('breakingnews');
+  console.log(`✅ Breaking news override: ${newsConfig.cacheHours}h cache (default is 5)`);
 
-    if (insertError) {
-      throw new Error(`Insert failed: ${insertError.message}`);
-    }
-    logInfo('✅ Test insert successful', { id: sourceData.id });
-
-    // Test 4: Query test data
-    progress.update(4, { test: 'Query' });
-    const { data: queryData, error: queryError } = await supabase
-      .from('sources')
-      .select('*')
-      .eq('name', 'test_source')
-      .single();
-
-    if (queryError || !queryData) {
-      throw new Error(`Query failed: ${queryError?.message}`);
-    }
-    logInfo('✅ Test query successful', { name: queryData.name });
-
-    // Test 5: Update test data
-    progress.update(5, { test: 'Update' });
-    const { error: updateError } = await supabase
-      .from('sources')
-      .update({ is_active: false })
-      .eq('id', sourceData.id);
-
-    if (updateError) {
-      throw new Error(`Update failed: ${updateError.message}`);
-    }
-    logInfo('✅ Test update successful');
-
-    // Test 6: Clean up
-    progress.update(6, { test: 'Cleanup' });
-    const { error: deleteError } = await supabase
-      .from('sources')
-      .delete()
-      .eq('id', sourceData.id);
-
-    if (deleteError) {
-      throw new Error(`Cleanup failed: ${deleteError.message}`);
-    }
-    logInfo('✅ Test cleanup successful');
-
-    progress.complete('Database setup test completed successfully!');
-
-  } catch (error) {
-    logError('Database test failed', error);
-    progress.fail(error instanceof Error ? error.message : 'Unknown error');
-    process.exit(1);
+  // Test 3: Validation
+  console.log('\n3. Testing Configuration Validation:');
+  
+  const validationErrors = configValidator.validateAll();
+  if (validationErrors.length === 0) {
+    console.log('✅ All configurations are valid');
+  } else {
+    console.log('❌ Configuration errors found:');
+    validationErrors.forEach(error => {
+      console.log(`  - ${error.source}.${error.field}: ${error.message}`);
+    });
   }
+
+  // Test 4: Environment configuration
+  console.log('\n4. Testing Environment Configuration:');
+  console.log(`✅ Environment: ${envConfig.development ? 'Development' : 'Production'}`);
+  console.log(`✅ Twitter timeout: ${envConfig.apiTimeouts.twitter}ms`);
+  console.log(`✅ Log level: ${envConfig.logging.level}`);
+
+  // Test 5: Type safety demonstration
+  console.log('\n5. Demonstrating Type Safety:');
+  
+  // This would cause a TypeScript error:
+  // const badConfig = getXAccountConfig('test');
+  // badConfig.invalidProperty = 'error'; // ← TypeScript catches this!
+  
+  console.log('✅ TypeScript prevents invalid configuration properties');
+
+  console.log('\n🎉 Configuration system test completed successfully!');
 }
 
 // Run the test
-testDatabaseSetup();
+testConfiguration().catch(error => {
+  logger.error('Configuration test failed', error);
+  process.exit(1);
+});
 ```
 
-Run the database test:
+## 📝 Using Configuration in Your Code
 
+Here's how simple it is to use configuration throughout your application:
+
+```typescript
+// Example: Using configuration in a Twitter client
+import { getXAccountConfig } from '../config/data-sources-config';
+
+export class TwitterClient {
+  async fetchTweets(username: string) {
+    // Get configuration for this specific account
+    const config = getXAccountConfig(username);
+    
+    console.log(`Fetching ${config.tweetsPerRequest} tweets from @${username}`);
+    console.log(`Will paginate through ${config.maxPages} pages`);
+    console.log(`Cache expires in ${config.cacheHours} hours`);
+    
+    // Use the configuration values
+    const tweets = await this.api.getUserTweets(username, {
+      max_results: config.tweetsPerRequest,
+      // ... other Twitter API parameters
+    });
+    
+    // Filter based on configuration
+    return tweets.filter(tweet => 
+      tweet.text.length >= config.minTweetLength &&
+      this.calculateEngagement(tweet) >= config.minEngagementScore
+    );
+  }
+}
+```
+**Package.json script to add:**
+```json
+{
+  "scripts": {
+    "test:config": "npm run script scripts/test/test-config.ts"
+  }
+}
+```
+
+Run your configuration test:
 ```bash
-npm run test:db
+npm run test:config
 ```
 
 ## 🎯 What We've Accomplished
 
-Incredible work! You've just built the data foundation for a production-ready system:
+You've just built a configuration system that's both simple and powerful:
 
-✅ **Supabase database** with optimized schema design  
-✅ **Type-safe database interfaces** with full TypeScript support  
-✅ **Professional logging system** with multiple transports  
-✅ **Progress tracking** for long-running operations  
-✅ **Comprehensive testing** to verify everything works  
+✅ **Centralized configuration** - One file to rule them all  
+✅ **Smart defaults** - Works out of the box  
+✅ **Flexible overrides** - Customize per source without complexity  
+✅ **Type safety** - Catch errors at compile time  
+✅ **Validation** - Prevent invalid configurations  
+✅ **Environment awareness** - Different settings for dev/prod  
 
 ### 🔍 Pro Tips & Common Pitfalls
 
-**💡 Pro Tip:** Always use database indexes on columns you'll query frequently. We've added indexes for `created_at`, `author_username`, and `engagement_score`.
+**💡 Pro Tip:** Start with generous defaults, then optimize. It's easier to lower limits than explain why your system is too aggressive.
 
-**⚠️ Common Pitfall:** Don't store your service role key in client-side code! It has admin privileges. Use the anon key for frontend operations.
+**⚠️ Common Pitfall:** Don't over-configure. If 90% of sources use the same setting, make it the default.
 
-**🔧 Performance Tip:** PostgreSQL's JSONB type is incredibly powerful for storing metadata while maintaining query performance.
+**🔧 Performance Tip:** Cache configuration lookups if you're calling them frequently. Our helper functions are already optimized.
 
 ---
 
-### 📋 Complete Code Summary - Chapter 2
+### 📋 Complete Code Summary - Chapter 3
 
-Here are all the files you should have created:
+Here are all the files you should create:
 
-**Database Schema:**
-```bash
-# Created: scripts/db/schema.sql (database tables and indexes)
-# Created: scripts/db/init-db.ts (database initialization script)
+**Configuration Types:**
+```typescript
+// config/types.ts
+export interface XAccountConfig {
+  tweetsPerRequest: number;
+  maxPages: number;
+  cacheHours: number;
+  minTweetLength: number;
+  minEngagementScore: number;
+}
+// ... (other interfaces)
 ```
 
-**TypeScript Types:** 
-```bash
-# Created: types/database.ts (complete type definitions)
+**Main Configuration:**
+```typescript
+// config/data-sources-config.ts
+export const xConfig = {
+  defaults: { /* ... */ },
+  accountOverrides: { /* ... */ }
+};
+// ... (helper functions)
 ```
 
-**Core Infrastructure:**
-```bash
-# Created: lib/supabase/supabase-client.ts (database client)
-# Created: lib/logger/index.ts (Winston logging setup)
-# Created: utils/progress.ts (progress tracking utilities)
+**Validation System:**
+```typescript
+// config/validator.ts
+export class ConfigValidator {
+  validateAll(): ValidationError[] { /* ... */ }
+}
+```
+
+**Environment Config:**
+```typescript
+// config/environment.ts
+export const envConfig = getEnvironmentConfig();
 ```
 
 **Testing:**
-```bash
-# Created: scripts/db/test-connection.ts (comprehensive database test)
+```typescript
+// scripts/test/test-config.ts
+// Complete configuration testing suite
 ```
 
-**Package.json scripts to add:**
-```json
-{
-  "scripts": {
-    "test:db": "npm run script scripts/db/test-connection.ts",
-    "init:db": "npm run script scripts/db/init-db.ts"
-  }
-}
-```
-
-**Your database is now ready to handle:**
-- 📊 Thousands of tweets with engagement metrics
-- 💬 Telegram messages from multiple channels  
-- 📰 RSS articles with content analysis
-- 🤖 AI-generated digests with metadata
-- 📈 Performance monitoring through logs
-
-**Next up:** In Chapter 3, we'll create the centralized configuration system that makes managing multiple data sources effortless. We'll build type-safe configs that let you fine-tune everything from API rate limits to content quality thresholds—all from one place!
+**Next up:** In Chapter 4, we dive into the exciting world of web scraping! We'll build our Twitter API client with intelligent rate limiting, content filtering, and engagement analysis. Get ready to tap into the social media firehose! 🚀
 
 ---
 
-*Ready to continue? The next chapter will show you how to build configuration that scales as your system grows. No more hunting through code to change settings! 🚀*# Chapter 2: Building Your Data Foundation - Database & Core Structure
-
-*"Data is the new oil, but like oil, it's only valuable when refined." - Clive Humby*
-
----
-
-Now that we have our development environment set up, it's time to build the backbone of our system: the database layer and core data structures. Think of this chapter as constructing the foundation and plumbing for a skyscraper—not the most glamorous work, but absolutely critical for everything that follows.
-
-In this chapter, we'll create a robust data layer that can handle thousands of tweets, Telegram messages, and RSS articles while maintaining lightning-fast query performance. We'll also build a professional logging system that will be your best friend when debugging issues at 2 AM.
-
-## 🗄️ Setting Up Supabase: Your PostgreSQL Powerhouse
-
-### Why Supabase Over Other Solutions?
-
-Before we dive in, let's talk about why we chose Supabase:
-
-- **PostgreSQL under the hood**: Real SQL, not a NoSQL compromise
-- **Real-time subscriptions**: Watch data change live
-- **Built-in authentication**: User management without the headache
-- **Edge functions**: Serverless functions that scale
-- **Generous free tier**: Perfect for development and small projects
-
-### Creating Your Supabase Project
-
-1. **Sign up at [supabase.com](https://supabase.com)**
-2. **Create a new project:**
-   - Name: `cl-digest-bot`
-   - Database password: Generate a strong one (save it!)
-   - Region: Choose the closest to your users
-
-3. **Grab your credentials** from the project settings:
-   - Project URL
-   - Anon public key
-   - Service role key (keep this secret!)
-
-4. **Update your `.env.local`:**
-
-```env
-# Add these to your existing .env.local
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-```
-
-### 🏗️ Database Schema: Designing for Scale
-
-Let's create our database tables. We need to store:
-- **Tweets** with engagement metrics
-- **Telegram messages** from various channels
-- **RSS articles** with metadata
-- **Generated digests** and their configurations
-- **Source accounts** for each platform
-
-Create this file to define our schema:
-
-```sql
--- scripts/db/schema.sql
-
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- Sources table: Track all our data sources
-CREATE TABLE sources (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('twitter', 'telegram', 'rss')),
-    url VARCHAR(500),
-    username VARCHAR(255),
-    is_active BOOLEAN DEFAULT true,
-    config JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Tweets table: Store Twitter/X data with engagement metrics
-CREATE TABLE tweets (
-    id VARCHAR(255) PRIMARY KEY, -- Twitter's tweet ID
-    text TEXT NOT NULL,
-    author_id VARCHAR(255) NOT NULL,
-    author_username VARCHAR(255) NOT NULL,
-    author_name VARCHAR(255),
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    
-    -- Engagement metrics
-    retweet_count INTEGER DEFAULT 0,
-    like_count INTEGER DEFAULT 0,
-    reply_count INTEGER DEFAULT 0,
-    quote_count INTEGER DEFAULT 0,
-    
-    -- Our computed fields
-    engagement_score INTEGER DEFAULT 0,
-    quality_score FLOAT DEFAULT 0,
-    
-    -- Metadata
-    source_url VARCHAR(500),
-    raw_data JSONB,
-    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    -- Indexes for performance
-    CONSTRAINT tweets_engagement_score_check CHECK (engagement_score >= 0)
-);
-
--- Telegram messages table
-CREATE TABLE telegram_messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    message_id VARCHAR(255) NOT NULL,
-    channel_username VARCHAR(255) NOT NULL,
-    channel_title VARCHAR(255),
-    text TEXT NOT NULL,
-    author VARCHAR(255),
-    message_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    
-    -- Message metadata
-    views INTEGER DEFAULT 0,
-    forwards INTEGER DEFAULT 0,
-    replies INTEGER DEFAULT 0,
-    
-    -- Our processing
-    quality_score FLOAT DEFAULT 0,
-    source_url VARCHAR(500),
-    raw_data JSONB,
-    fetched_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    -- Unique constraint to prevent duplicates
-    UNIQUE(message_id, channel_username)
-);
-
--- RSS articles table
-CREATE TABLE rss_articles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(500) NOT NULL,
-    link VARCHAR(500) NOT NULL UNIQUE,
-    description TEXT,
-    content TEXT,
-    author VARCHAR(255),
-    published_at TIMESTAMP WITH TIME ZONE,
-    
-    -- Source information
-    feed_url VARCHAR(500) NOT NULL,
-    feed_title VARCHAR(255),
-    
-    -- Our processing
-    quality_score FLOAT DEFAULT 0,
-    word_count INTEGER DEFAULT 0,
-    raw_data JSONB,
-    fetched_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Digests table: Store generated summaries
-CREATE TABLE digests (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(500) NOT NULL,
-    summary TEXT NOT NULL,
-    content JSONB NOT NULL, -- Structured digest data
-    
-    -- Generation metadata
-    ai_model VARCHAR(100),
-    ai_provider VARCHAR(50),
-    token_usage JSONB,
-    
-    -- Source data window
-    data_from TIMESTAMP WITH TIME ZONE NOT NULL,
-    data_to TIMESTAMP WITH TIME ZONE NOT NULL,
-    
-    -- Publishing
-    published_to_slack BOOLEAN DEFAULT false,
-    slack_message_ts VARCHAR(255),
-    
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create indexes for better query performance
-CREATE INDEX idx_tweets_created_at ON tweets(created_at DESC);
-CREATE INDEX idx_tweets_author_username ON tweets(author_username);
-CREATE INDEX idx_tweets_engagement_score ON tweets(engagement_score DESC);
-
-CREATE INDEX idx_telegram_messages_channel ON telegram_messages(channel_username);
-CREATE INDEX idx_telegram_messages_date ON telegram_messages(message_date DESC);
-
-CREATE INDEX idx_rss_articles_published ON rss_articles(published_at DESC);
-CREATE INDEX idx_rss_articles_feed ON rss_articles(feed_url);
-
-CREATE INDEX idx_digests_created ON digests(created_at DESC);
-
--- Create updated_at trigger function
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Apply the trigger to tables that need it
-CREATE TRIGGER update_sources_updated_at BEFORE UPDATE ON sources
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_digests_updated_at BEFORE UPDATE ON digests
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-```
-
-### 🔧 Setting Up the Database
-
-Now let's create a script to check and initialize our database. Due to Supabase's architecture, the most reliable way to set up tables is through their SQL Editor, but we'll create a helpful script that guides you through the process:
-
-```typescript
-// scripts/db/init-db.ts
-import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { config } from 'dotenv';
-
-// Load environment variables
-config({ path: '.env.local' });
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('❌ Missing Supabase credentials in environment variables');
-  console.log('\nPlease create .env.local with:');
-  console.log('NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co');
-  console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key');
-  console.log('SUPABASE_SERVICE_ROLE_KEY=your_service_key');
-  process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-async function main() {
-  console.log('🚀 Supabase Database Setup Tool\n');
-  
-  // Check which tables exist
-  const expectedTables = ['sources', 'tweets', 'telegram_messages', 'rss_articles', 'digests'];
-  const existingTables: string[] = [];
-  const missingTables: string[] = [];
-
-  console.log('🔍 Checking for existing tables...\n');
-
-  for (const tableName of expectedTables) {
-    try {
-      console.log(`Checking ${tableName}...`);
-      const { error } = await supabase
-        .from(tableName)
-        .select('*')
-        .limit(0);
-      
-      if (!error) {
-        existingTables.push(tableName);
-        console.log(`  ✅ ${tableName} exists`);
-      } else {
-        missingTables.push(tableName);
-        console.log(`  ❌ ${tableName} missing`);
-      }
-    } catch (err) {
-      missingTables.push(tableName);
-      console.log(`  ❌ ${tableName} missing (connection error)`);
-    }
-  }
-
-  console.log('\n📊 Database Status:');
-  console.log(`  ✅ Existing tables: ${existingTables.length}/${expectedTables.length}`);
-  console.log(`  ❌ Missing tables: ${missingTables.length}`);
-
-  if (missingTables.length === 0) {
-    console.log('\n🎉 All tables exist! Your database is ready.');
-    
-    // Quick test
-    try {
-      const { data, error } = await supabase
-        .from('sources')
-        .select('count');
-      
-      if (!error) {
-        console.log('✅ Database operations are working correctly');
-      }
-    } catch (err) {
-      console.log('⚠️  Tables exist but there might be permission issues');
-    }
-    
-    return;
-  }
-
-  // Show setup instructions
-  console.log('\n🔧 Setup Required!');
-  console.log('\nTo create the missing tables:');
-  console.log('\n📝 Method 1 - Supabase Dashboard (Recommended):');
-  console.log('  1. Go to https://supabase.com/dashboard');
-  console.log('  2. Select your project');
-  console.log('  3. Click "SQL Editor" in the left sidebar');
-  console.log('  4. Copy the SQL below and paste it');
-  console.log('  5. Click "Run"');
-  
-  console.log('\n📄 SQL to copy and paste:');
-  console.log('=' + '='.repeat(80));
-  
-  try {
-    const schemaPath = join(__dirname, 'schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    console.log(schema);
-  } catch (err) {
-    console.log('❌ Could not read schema.sql file');
-    console.log('Make sure scripts/db/schema.sql exists');
-  }
-  
-  console.log('=' + '='.repeat(80));
-  
-  console.log('\n✅ After running the SQL, run this script again to verify!');
-}
-
-main().catch((error) => {
-  console.error('\n❌ Script failed:', error.message);
-  console.log('\nTroubleshooting:');
-  console.log('1. Check your .env.local file has valid Supabase credentials');
-  console.log('2. Verify your Supabase project is active');
-  console.log('3. Make sure your service role key is correct');
-  process.exit(1);
-});
-```
-
-### 🚀 Database Setup Process
-
-**Step 1: Run the setup script to check your database:**
-
-```bash
-npm run script scripts/db/init-db.ts
-```
-
-**Step 2: If tables are missing, use the Supabase SQL Editor:**
-
-1. **Go to your Supabase dashboard** at [supabase.com/dashboard](https://supabase.com/dashboard)
-2. **Select your project**
-3. **Click "SQL Editor"** in the left sidebar
-4. **Copy the SQL output** from the script above
-5. **Paste it in the SQL Editor** and click "Run"
-
-**Step 3: Verify the setup:**
-
-```bash
-npm run script scripts/db/init-db.ts
-```
-
-You should see: `🎉 All tables exist! Your database is ready.`
-
-### 💡 Why This Approach?
-
-**Supabase's architecture** makes direct SQL execution through their JavaScript client challenging for schema creation. The most reliable approach is:
-
-- ✅ **SQL Editor**: Direct database access with full permissions
-- ✅ **Verification Script**: Ensures everything is set up correctly  
-- ✅ **Error-free**: No complex connection handling or permission issues
-- ✅ **Reproducible**: Easy to re-run and verify
-
-## 📝 TypeScript Types: Type Safety for Your Data
-
-Now let's create TypeScript interfaces that match our database schema. This gives us compile-time safety and excellent IDE support:
-
-```typescript
-// types/database.ts
-
-export interface Database {
-  public: {
-    Tables: {
-      sources: {
-        Row: Source;
-        Insert: Omit<Source, 'id' | 'created_at' | 'updated_at'> & {
-          id?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: Partial<Source>;
-      };
-      tweets: {
-        Row: Tweet;
-        Insert: Omit<Tweet, 'processed_at'> & {
-          processed_at?: string;
-        };
-        Update: Partial<Tweet>;
-      };
-      telegram_messages: {
-        Row: TelegramMessage;
-        Insert: Omit<TelegramMessage, 'id' | 'fetched_at'> & {
-          id?: string;
-          fetched_at?: string;
-        };
-        Update: Partial<TelegramMessage>;
-      };
-      rss_articles: {
-        Row: RSSArticle;
-        Insert: Omit<RSSArticle, 'id' | 'fetched_at'> & {
-          id?: string;
-          fetched_at?: string;
-        };
-        Update: Partial<RSSArticle>;
-      };
-      digests: {
-        Row: Digest;
-        Insert: Omit<Digest, 'id' | 'created_at' | 'updated_at'> & {
-          id?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: Partial<Digest>;
-      };
-    };
-  };
-}
-
-// Individual table types
-export interface Source {
-  id: string;
-  name: string;
-  type: 'twitter' | 'telegram' | 'rss';
-  url?: string;
-  username?: string;
-  is_active: boolean;
-  config: Record<string, any>;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Tweet {
-  id: string; // Twitter's tweet ID
-  text: string;
-  author_id: string;
-  author_username: string;
-  author_name?: string;
-  created_at: string;
-  
-  // Engagement metrics
-  retweet_count: number;
-  like_count: number;
-  reply_count: number;
-  quote_count: number;
-  
-  // Computed fields
-  engagement_score: number;
-  quality_score: number;
-  
-  // Metadata
-  source_url?: string;
-  raw_data?: Record<string, any>;
-  processed_at: string;
-}
-
-export interface TelegramMessage {
-  id: string;
-  message_id: string;
-  channel_username: string;
-  channel_title?: string;
-  text: string;
-  author?: string;
-  message_date: string;
-  
-  // Engagement
-  views: number;
-  forwards: number;
-  replies: number;
-  
-  // Processing
-  quality_score: number;
-  source_url?: string;
-  raw_data?: Record<string, any>;
-  fetched_at: string;
-}
-
-export interface RSSArticle {
-  id: string;
-  title: string;
-  link: string;
-  description?: string;
-  content?: string;
-  author?: string;
-  published_at?: string;
-  
-  // Source
-  feed_url: string;
-  feed_title?: string;
-  
-  // Processing
-  quality_score: number;
-  word_count: number;
-  raw_data?: Record<string, any>;
-  fetched_at: string;
-}
-
-export interface Digest {
-  id: string;
-  title: string;
-  summary: string;
-  content: DigestContent;
-  
-  // AI metadata
-  ai_model?: string;
-  ai_provider?: string;
-  token_usage?: TokenUsage;
-  
-  // Data scope
-  data_from: string;
-  data_to: string;
-  
-  // Publishing
-  published_to_slack: boolean;
-  slack_message_ts?: string;
-  
-  created_at: string;
-  updated_at: string;
-}
-
-// Supporting types
-export interface DigestContent {
-  sections: DigestSection[];
-  tweets: TweetDigestItem[];
-  articles: ArticleDigestItem[];
-  telegram_messages?: TelegramDigestItem[];
-  metadata: {
-    total_sources: number;
-    processing_time_ms: number;
-    model_config: any;
-  };
-}
-
-export interface DigestSection {
-  title: string;
-  summary: string;
-  key_points: string[];
-  source_count: number;
-}
-
-export interface TweetDigestItem {
-  id: string;
-  text: string;
-  author: string;
-  url: string;
-  engagement: {
-    likes: number;
-    retweets: number;
-    replies: number;
-  };
-  relevance_score: number;
-}
-
-export interface ArticleDigestItem {
-  title: string;
-  summary: string;
-  url: string;
-  source: string;
-  published_at: string;
-  relevance_score: number;
-}
-
-export interface TelegramDigestItem {
-  text: string;
-  channel: string;
-  author?: string;
-  url: string;
-  date: string;
-  relevance_score: number;
-}
-
-export interface TokenUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  reasoning_tokens?: number;
-}
-```
-
-## 🔌 Supabase Client Setup
-
-Let's create our database client with proper configuration:
-
-```typescript
-// lib/supabase/supabase-client.ts
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../../types/database';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-// Create the client with proper typing
-export const supabase = createClient<Database>(
-  supabaseUrl,
-  supabaseAnonKey,
-  {
-    auth: {
-      persistSession: false, // We're not using auth for now
-    },
-    db: {
-      schema: 'public',
-    },
-    global: {
-      headers: {
-        'X-Client-Info': 'cl-digest-bot',
-      },
-    },
-  }
-);
-
-// Utility function to check connection
-export async function testConnection(): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from('sources')
-      .select('count')
-      .limit(1);
-    
-    return !error;
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    return false;
-  }
-}
-```
-
-## 📊 Professional Logging: Your Debugging Superpower
-
-Now let's create a robust logging system using Winston. This will be invaluable for monitoring our system in production:
-
-```typescript
-// lib/logger/index.ts
-import winston from 'winston';
-import { join } from 'path';
-
-// Define log levels and colors
-const logLevels = {
-  error: 0,
-  warn: 1,
-  info: 2,
-  http: 3,
-  debug: 4,
-};
-
-const logColors = {
-  error: 'red',
-  warn: 'yellow', 
-  info: 'green',
-  http: 'magenta',
-  debug: 'white',
-};
-
-// Tell winston about our colors
-winston.addColors(logColors);
-
-// Custom format for console output
-const consoleFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-  winston.format.colorize({ all: true }),
-  winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}`
-  )
-);
-
-// Format for file output (JSON for easier parsing)
-const fileFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.errors({ stack: true }),
-  winston.format.json()
-);
-
-// Create the logger
-const logger = winston.createLogger({
-  level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
-  levels: logLevels,
-  format: fileFormat,
-  defaultMeta: { service: 'cl-digest-bot' },
-  transports: [
-    // Write all logs with importance level of 'error' or less to error.log
-    new winston.transports.File({
-      filename: join(process.cwd(), 'logs', 'error.log'),
-      level: 'error',
-    }),
-    // Write all logs to combined.log
-    new winston.transports.File({
-      filename: join(process.cwd(), 'logs', 'combined.log'),
-    }),
-  ],
-});
-
-// Add console output for development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
-    })
-  );
-}
-
-// Create logs directory if it doesn't exist
-import { mkdirSync } from 'fs';
-try {
-  mkdirSync(join(process.cwd(), 'logs'), { recursive: true });
-} catch (error) {
-  // Directory already exists, ignore
-}
-
-export default logger;
-
-// Helper functions for common log patterns
-export const logError = (message: string, error?: any, metadata?: any) => {
-  logger.error(message, { error: error?.message || error, stack: error?.stack, ...metadata });
-};
-
-export const logInfo = (message: string, metadata?: any) => {
-  logger.info(message, metadata);
-};
-
-export const logDebug = (message: string, metadata?: any) => {
-  logger.debug(message, metadata);
-};
-
-export const logWarning = (message: string, metadata?: any) => {
-  logger.warn(message, metadata);
-};
-```
-
-## 📈 Progress Tracking: Visual Feedback for Long Operations
-
-Let's create a progress tracking system that integrates with our logging:
-
-```typescript
-// utils/progress.ts
-import cliProgress from 'cli-progress';
-import logger from '../lib/logger';
-
-export interface ProgressConfig {
-  total: number;
-  label: string;
-  showPercentage?: boolean;
-  showETA?: boolean;
-}
-
-export class ProgressTracker {
-  private bar: cliProgress.SingleBar | null = null;
-  private startTime: number = 0;
-  private label: string = '';
-
-  constructor(config: ProgressConfig) {
-    this.label = config.label;
-    this.startTime = Date.now();
-
-    // Create progress bar with custom format
-    this.bar = new cliProgress.SingleBar({
-      format: `${config.label} [{bar}] {percentage}% | ETA: {eta}s | {value}/{total}`,
-      hideCursor: true,
-      barCompleteChar: '█',
-      barIncompleteChar: '░',
-      clearOnComplete: false,
-      stopOnComplete: true,
-    }, cliProgress.Presets.shades_classic);
-
-    this.bar.start(config.total, 0);
-    logger.info(`Started: ${config.label}`, { total: config.total });
-  }
-
-  update(current: number, data?: any): void {
-    if (this.bar) {
-      this.bar.update(current, data);
-    }
-  }
-
-  increment(data?: any): void {
-    if (this.bar) {
-      this.bar.increment(data);
-    }
-  }
-
-  complete(message?: string): void {
-    if (this.bar) {
-      this.bar.stop();
-    }
-
-    const duration = Date.now() - this.startTime;
-    const completionMessage = message || `Completed: ${this.label}`;
-    
-    logger.info(completionMessage, { 
-      duration_ms: duration,
-      duration_formatted: `${(duration / 1000).toFixed(2)}s`
-    });
-
-    console.log(`✅ ${completionMessage} (${(duration / 1000).toFixed(2)}s)`);
-  }
-
-  fail(error: string): void {
-    if (this.bar) {
-      this.bar.stop();
-    }
-
-    const duration = Date.now() - this.startTime;
-    logger.error(`Failed: ${this.label}`, { error, duration_ms: duration });
-    console.log(`❌ Failed: ${this.label} - ${error}`);
-  }
-}
-
-// Progress manager for multiple concurrent operations
-export class ProgressManager {
-  private trackers: Map<string, ProgressTracker> = new Map();
-
-  create(id: string, config: ProgressConfig): ProgressTracker {
-    const tracker = new ProgressTracker(config);
-    this.trackers.set(id, tracker);
-    return tracker;
-  }
-
-  get(id: string): ProgressTracker | undefined {
-    return this.trackers.get(id);
-  }
-
-  complete(id: string, message?: string): void {
-    const tracker = this.trackers.get(id);
-    if (tracker) {
-      tracker.complete(message);
-      this.trackers.delete(id);
-    }
-  }
-
-  fail(id: string, error: string): void {
-    const tracker = this.trackers.get(id);
-    if (tracker) {
-      tracker.fail(error);
-      this.trackers.delete(id);
-    }
-  }
-
-  cleanup(): void {
-    this.trackers.clear();
-  }
-}
-
-// Global progress manager instance
-export const progressManager = new ProgressManager();
-```
-
-## 🧪 Testing Your Database Setup
-
-Let's create a comprehensive test to verify everything is working:
-
-```typescript
-// scripts/db/test-connection.ts
-import { config } from 'dotenv';
-import { supabase, testConnection } from '../../lib/supabase/supabase-client';
-import logger, { logInfo, logError } from '../../lib/logger';
-import { ProgressTracker } from '../../utils/progress';
-
-// Load environment variables
-config({ path: '.env.local' });
-
-async function testDatabaseSetup() {
-  const progress = new ProgressTracker({
-    total: 6,
-    label: 'Testing Database Setup'
-  });
-
-  try {
-    // Test 1: Connection
-    progress.update(1, { test: 'Connection' });
-    const connected = await testConnection();
-    if (!connected) {
-      throw new Error('Failed to connect to database');
-    }
-    logInfo('✅ Database connection successful');
-
-    // Test 2: Tables exist
-    progress.update(2, { test: 'Tables' });
-    const expectedTables = ['sources', 'tweets', 'telegram_messages', 'rss_articles', 'digests'];
-    const foundTables: string[] = [];
-    
-    for (const tableName of expectedTables) {
-      const { error } = await supabase
-        .from(tableName)
-        .select('*')
-        .limit(0);
-      
-      if (!error) {
-        foundTables.push(tableName);
-      }
-    }
-    
-    if (expectedTables.every(table => foundTables.includes(table))) {
-      logInfo('✅ All required tables exist', { tables: foundTables });
-    } else {
-      throw new Error(`Missing tables: ${expectedTables.filter(t => !foundTables.includes(t))}`);
-    }
-
-    // Test 3: Insert test data
-    progress.update(3, { test: 'Insert' });
-    const { data: sourceData, error: insertError } = await supabase
-      .from('sources')
-      .insert({
-        name: 'test_source',
-        type: 'twitter',
-        username: 'test_user',
-        config: { test: true }
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      throw new Error(`Insert failed: ${insertError.message}`);
-    }
-    logInfo('✅ Test insert successful', { id: sourceData.id });
-
-    // Test 4: Query test data
-    progress.update(4, { test: 'Query' });
-    const { data: queryData, error: queryError } = await supabase
-      .from('sources')
-      .select('*')
-      .eq('name', 'test_source')
-      .single();
-
-    if (queryError || !queryData) {
-      throw new Error(`Query failed: ${queryError?.message}`);
-    }
-    logInfo('✅ Test query successful', { name: queryData.name });
-
-    // Test 5: Update test data
-    progress.update(5, { test: 'Update' });
-    const { error: updateError } = await supabase
-      .from('sources')
-      .update({ is_active: false })
-      .eq('id', sourceData.id);
-
-    if (updateError) {
-      throw new Error(`Update failed: ${updateError.message}`);
-    }
-    logInfo('✅ Test update successful');
-
-    // Test 6: Clean up
-    progress.update(6, { test: 'Cleanup' });
-    const { error: deleteError } = await supabase
-      .from('sources')
-      .delete()
-      .eq('id', sourceData.id);
-
-    if (deleteError) {
-      throw new Error(`Cleanup failed: ${deleteError.message}`);
-    }
-    logInfo('✅ Test cleanup successful');
-
-    progress.complete('Database setup test completed successfully!');
-
-  } catch (error) {
-    logError('Database test failed', error);
-    progress.fail(error instanceof Error ? error.message : 'Unknown error');
-    process.exit(1);
-  }
-}
-
-// Run the test
-testDatabaseSetup();
-```
-
-Run the database test:
-
-```bash
-npm run test:db
-```
-
-## 🎯 What We've Accomplished
-
-Incredible work! You've just built the data foundation for a production-ready system:
-
-✅ **Supabase database** with optimized schema design  
-✅ **Type-safe database interfaces** with full TypeScript support  
-✅ **Professional logging system** with multiple transports  
-✅ **Progress tracking** for long-running operations  
-✅ **Comprehensive testing** to verify everything works  
-
-### 🔍 Pro Tips & Common Pitfalls
-
-**💡 Pro Tip:** Always use database indexes on columns you'll query frequently. We've added indexes for `created_at`, `author_username`, and `engagement_score`.
-
-**⚠️ Common Pitfall:** Don't store your service role key in client-side code! It has admin privileges. Use the anon key for frontend operations.
-
-**🔧 Performance Tip:** PostgreSQL's JSONB type is incredibly powerful for storing metadata while maintaining query performance.
-
----
-
-### 📋 Complete Code Summary - Chapter 2
-
-Here are all the files you should have created:
-
-**Database Schema:**
-```bash
-# Created: scripts/db/schema.sql (database tables and indexes)
-# Created: scripts/db/init-db.ts (database initialization script)
-```
-
-**TypeScript Types:** 
-```bash
-# Created: types/database.ts (complete type definitions)
-```
-
-**Core Infrastructure:**
-```bash
-# Created: lib/supabase/supabase-client.ts (database client)
-# Created: lib/logger/index.ts (Winston logging setup)
-# Created: utils/progress.ts (progress tracking utilities)
-```
-
-**Testing:**
-```bash
-# Created: scripts/db/test-connection.ts (comprehensive database test)
-```
-
-**Package.json scripts to add:**
-```json
-{
-  "scripts": {
-    "test:db": "npm run script scripts/db/test-connection.ts",
-    "init:db": "npm run script scripts/db/init-db.ts"
-  }
-}
-```
-
-**Your database is now ready to handle:**
-- 📊 Thousands of tweets with engagement metrics
-- 💬 Telegram messages from multiple channels  
-- 📰 RSS articles with content analysis
-- 🤖 AI-generated digests with metadata
-- 📈 Performance monitoring through logs
-
-**Next up:** In Chapter 3, we'll create the centralized configuration system that makes managing multiple data sources effortless. We'll build type-safe configs that let you fine-tune everything from API rate limits to content quality thresholds—all from one place!
-
----
-
-*Ready to continue? The next chapter will show you how to build configuration that scales as your system grows. No more hunting through code to change settings! 🚀*
+*Ready to start collecting data? The next chapter will show you how to build a robust Twitter scraping system that respects API limits while maximizing data quality. The real fun begins now! 🐦*
