@@ -11,6 +11,7 @@
     "test:config": "npm run script scripts/test/test-config.ts",
     "test:db": "npm run script scripts/db/test-connection.ts",
     "test:digest": "npm run script scripts/digest/test-digest.ts",
+    "test:telegram": "npm run script scripts/test/test-telegram.ts",
     "test:twitter": "npm run script scripts/test/test-twitter.ts"
   },
   "dependencies": {

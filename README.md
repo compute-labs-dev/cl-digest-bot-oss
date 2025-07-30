@@ -1,401 +1,506 @@
-# Chapter 4: Tapping Into the Twitter Firehose - Smart Social Media Collection
+# Chapter 5: Mining Telegram Channels - Free Data Gold Rush
 
-*"The best way to find out if you can trust somebody is to trust them." - Ernest Hemingway*
-
----
-
-Here's where things get exciting! We're about to tap into one of the world's largest real-time information streams. Twitter (now X) processes over 500 million tweets daily - that's a treasure trove of breaking news, market sentiment, and trending topics.
-
-But here's the reality check: **Twitter's API isn't free.** Their pricing can add up quickly, especially when you're experimenting and learning.
-
-## 💰 Twitter API: To Pay or Not to Pay?
-
-**Twitter API Pricing (as of 2024):**
-- **Free tier**: 1,500 tweets/month (severely limited)
-- **Basic tier**: $100/month for 10,000 tweets
-- **Pro tier**: $5,000/month for 1M tweets
-
-**🤔 Should You Skip Twitter Integration?**
-
-**Skip Twitter if:**
-- You're just learning and don't want recurring costs
-- You have other data sources (Telegram, RSS) that meet your needs
-- You want to focus on AI processing rather than data collection
-
-**Include Twitter if:**
-- You need real-time social sentiment
-- You're building for a business that can justify the cost
-- You want to learn professional API integration patterns
+*"The best things in life are free." - Luther Vandross*
 
 ---
 
-## 🚀 Option 1: Skip Twitter and Jump Ahead
+Welcome to the treasure hunt! While Twitter charges premium prices for their data, Telegram channels are completely open and free to scrape. We're talking about **millions of messages** from crypto analysts, AI researchers, news channels, and industry insiders - all available without spending a penny.
 
-**If you want to skip Twitter integration**, here's what to do:
+Telegram has become the go-to platform for:
+- **Crypto communities** sharing alpha and market insights
+- **Tech channels** breaking AI and startup news  
+- **Financial analysts** posting real-time market commentary
+- **News outlets** with faster-than-Twitter updates
 
-1. **Skip to Chapter 5 (Telegram)** - Free data source with rich content
-2. **Update your configuration** to disable Twitter:
+In this chapter, we'll build a sophisticated web scraping system that extracts valuable content from Telegram channels while respecting rate limits and avoiding detection.
+
+## 🎯 What We're Building
+
+A Telegram scraping system that:
+- **Scrapes public channels** without authentication
+- **Parses rich content** (text, media, links, reactions)
+- **Handles dynamic loading** and pagination
+- **Respects rate limits** to avoid being blocked
+- **Extracts engagement metrics** (views, forwards, replies)
+- **Caches intelligently** for performance
+
+**Best part?** It's completely free and legal (for public channels).
+
+## 🌐 Understanding Telegram's Web Interface
+
+Telegram provides a web interface at `https://t.me/channel_name` that we can scrape. Unlike their Bot API (which requires tokens and has limitations), web scraping gives us access to:
+
+- **All public messages** in chronological order
+- **Full message content** including media descriptions
+- **Engagement metrics** (views, forwards)
+- **Message metadata** (timestamps, authors)
+- **Channel information** (subscriber count, description)
+
+## 📊 Telegram Data Types
+
+Let's define our data structures:
 
 ```typescript
-// config/data-sources-config.ts
-export const systemConfig = {
-  enabledSources: {
-    twitter: false,      // ← Set this to false
-    telegram: true,      // Free alternative
-    rss: true           // Also free
-  }
-};
-```
+// types/telegram.ts
 
-3. **Mock Twitter data** for testing (we'll show you how)
-4. **Come back later** when you're ready to add Twitter
-
-**Jump to:** [Chapter 5: Telegram Mining](tutorial-part-5-telegram-mining.md)
-
----
-
-## 🐦 Option 2: Build the Full Twitter Integration
-
-If you're ready to invest in Twitter's API, let's build something amazing! We'll create a robust Twitter client that:
-
-- **Respects rate limits** (avoid getting blocked)
-- **Caches intelligently** (minimize API costs)
-- **Filters for quality** (ignore noise, focus on signal)
-- **Handles errors gracefully** (API failures happen)
-
-### 🔑 Setting Up Twitter API Credentials
-
-1. **Visit [developer.twitter.com](https://developer.twitter.com)**
-2. **Apply for API access** (they'll ask about your use case)
-3. **Create a new app** and note down:
-   - API Key
-   - API Secret Key
-   - Bearer Token
-
-4. **Add to your `.env.local`:**
-
-```env
-# Twitter/X API Credentials
-X_API_KEY=your_api_key_here
-X_API_SECRET=your_api_secret_here
-X_BEARER_TOKEN=your_bearer_token_here
-```
-
-### 📊 Twitter Data Types
-
-Let's define what data we'll collect and how we'll structure it:
-
-```typescript
-// types/twitter.ts
-
-export interface TwitterUser {
-  id: string;
-  username: string;
-  name: string;
-  description?: string;
-  verified: boolean;
-  followers_count: number;
-  following_count: number;
+export interface TelegramChannel {
+  username: string;      // Channel username (without @)
+  title: string;         // Display name
+  description?: string;  // Channel description
+  subscribers?: number;  // Subscriber count
+  photo_url?: string;   // Channel avatar
 }
 
-export interface TwitterTweet {
-  id: string;
-  text: string;
-  author_id: string;
-  created_at: string;
+export interface TelegramMessage {
+  id: string;                    // Unique message ID
+  message_id: string;            // Telegram's internal ID
+  channel_username: string;      // Source channel
+  channel_title: string;        // Channel display name
+  text: string;                  // Message content
+  author?: string;               // Message author (if available)
+  message_date: string;          // When posted
   
   // Engagement metrics
-  public_metrics: {
-    retweet_count: number;
-    like_count: number;
-    reply_count: number;
-    quote_count: number;
-  };
+  views: number;                 // View count
+  forwards: number;              // Forward count
+  replies: number;               // Reply count
   
   // Content analysis
-  entities?: {
-    urls?: Array<{ expanded_url: string; title?: string }>;
-    hashtags?: Array<{ tag: string }>;
-    mentions?: Array<{ username: string }>;
-  };
+  has_media: boolean;            // Contains photos/videos
+  media_description?: string;    // Alt text for media
+  links: string[];               // Extracted URLs
   
-  // Context
-  context_annotations?: Array<{
-    domain: { name: string };
-    entity: { name: string };
-  }>;
+  // Processing metadata
+  quality_score: number;         // Our quality assessment
+  source_url: string;           // Direct link to message
+  raw_html?: string;            // Original HTML (for debugging)
+  fetched_at: string;           // When we scraped it
 }
 
-export interface TweetWithEngagement extends TwitterTweet {
-  author_username: string;
-  author_name: string;
-  engagement_score: number;
-  quality_score: number;
-  processed_at: string;
+export interface TelegramScrapeResult {
+  channel: TelegramChannel;
+  messages: TelegramMessage[];
+  total_scraped: number;
+  has_more: boolean;
+  next_offset?: number;
 }
 ```
 
-### 🚀 Building the Twitter API Client
+## 🕷️ Building the Telegram Scraper
 
-Now let's build our Twitter client with all the production-ready features:
+Now let's build our scraper using JSDOM to parse HTML:
 
 ```typescript
-// lib/twitter/twitter-client.ts
+// lib/telegram/telegram-scraper.ts
 
-import { TwitterApi, TwitterApiReadOnly, TweetV2, UserV2 } from 'twitter-api-v2';
-import { TwitterTweet, TwitterUser, TweetWithEngagement } from '../../types/twitter';
-import { getXAccountConfig } from '../../config/data-sources-config';
+import fetch from 'node-fetch';
+import { JSDOM } from 'jsdom';
+import { TelegramChannel, TelegramMessage, TelegramScrapeResult } from '../../types/telegram';
+import { getTelegramChannelConfig } from '../../config/data-sources-config';
 import { envConfig } from '../../config/environment';
 import logger from '../logger';
 import { ProgressTracker } from '../../utils/progress';
-import { config } from 'dotenv';
 
-// Load environment variables
-config({ path: '.env.local' });
-
-interface RateLimitInfo {
-  limit: number;
-  remaining: number;
-  reset: number; // Unix timestamp
+interface ScrapingOptions {
+  maxMessages?: number;
+  beforeDate?: Date;
+  afterDate?: Date;
 }
 
-export class TwitterClient {
-  private client: TwitterApiReadOnly;
-  private rateLimitInfo: Map<string, RateLimitInfo> = new Map();
-
-  constructor() {
-    // For Twitter API v2, we need Bearer Token for OAuth 2.0 Application-Only auth
-    const bearerToken = process.env.X_BEARER_TOKEN;
-    const apiKey = process.env.X_API_KEY;
-    const apiSecret = process.env.X_API_SECRET;
-
-    // Try Bearer Token first (recommended for v2 API)
-    if (bearerToken) {
-      this.client = new TwitterApi(bearerToken).readOnly;
-    } 
-    // Fallback to App Key/Secret (OAuth 1.0a style)
-    else if (apiKey && apiSecret) {
-      this.client = new TwitterApi({
-        appKey: apiKey,
-        appSecret: apiSecret,
-      }).readOnly;
-    } 
-    else {
-      throw new Error('Missing Twitter API credentials. Need either X_BEARER_TOKEN or both X_API_KEY and X_API_SECRET in .env.local file.');
-    }
-
-    logger.info('Twitter client initialized with proper authentication');
-  }
+export class TelegramScraper {
+  private readonly baseUrl = 'https://t.me';
+  private readonly userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  private rateLimitDelay = envConfig.development ? 2000 : 5000; // More conservative in production
 
   /**
-   * Fetch tweets from a specific user
+   * Scrape messages from a Telegram channel
    */
-  async fetchUserTweets(username: string): Promise<TweetWithEngagement[]> {
-    // Check API quota before starting expensive operations
-    await this.checkApiQuota();
+  async scrapeChannel(channelUsername: string, options: ScrapingOptions = {}): Promise<TelegramScrapeResult> {
+    const config = getTelegramChannelConfig(channelUsername);
+    const maxMessages = options.maxMessages || config.messagesPerChannel;
     
-    const config = getXAccountConfig(username);
     const progress = new ProgressTracker({
-      total: config.maxPages,
-      label: `Fetching tweets from @${username}`
+      total: Math.ceil(maxMessages / 20), // Estimate pages (20 messages per page)
+      label: `Scraping t.me/${channelUsername}`
     });
 
     try {
-      // Check rate limits before starting
-      await this.checkRateLimit('users/by/username/:username/tweets');
-
-      // Get user info first
-      const user = await this.getUserByUsername(username);
-      if (!user) {
-        throw new Error(`User @${username} not found`);
+      // Step 1: Get channel info and first batch of messages
+      progress.update(1, { step: 'Loading channel' });
+      
+      const channelUrl = `${this.baseUrl}/${channelUsername}`;
+      const channelData = await this.fetchChannelPage(channelUrl);
+      
+      if (!channelData.channel) {
+        throw new Error(`Channel @${channelUsername} not found or is private`);
       }
 
-      const allTweets: TweetWithEngagement[] = [];
-      let nextToken: string | undefined;
-      let pagesProcessed = 0;
+      let allMessages: TelegramMessage[] = [];
+      let hasMore = true;
+      let offset = 0;
+      let pageCount = 0;
 
-      // Paginate through tweets (with conservative limits)
-      const maxPagesForTesting = Math.min(config.maxPages, 2); // Limit to 2 pages for testing
-      for (let page = 0; page < maxPagesForTesting; page++) {
-        progress.update(page + 1);
+      // Step 2: Paginate through messages
+      while (hasMore && allMessages.length < maxMessages && pageCount < 10) {
+        pageCount++;
+        progress.update(pageCount, { step: `Page ${pageCount}` });
 
-        const tweets = await this.fetchTweetPage(user.id, {
-          max_results: Math.min(config.tweetsPerRequest, 10), // Limit to 10 tweets per request
-          pagination_token: nextToken,
-        });
+        const pageMessages = await this.scrapeMessagesPage(
+          channelUsername, 
+          channelData.channel,
+          offset
+        );
 
-        if (!tweets.data?.data?.length) {
-          logger.info(`No more tweets found for @${username} on page ${page + 1}`);
+        if (pageMessages.length === 0) {
+          hasMore = false;
           break;
         }
 
-        // Process and filter tweets
-        const processedTweets = tweets.data.data
-          .map((tweet: TweetV2) => this.enhanceTweet(tweet, user))
-          .filter((tweet: TweetWithEngagement) => this.passesQualityFilter(tweet, config));
+        // Filter messages based on options
+        const filteredMessages = this.filterMessages(pageMessages, options);
+        allMessages.push(...filteredMessages);
 
-        allTweets.push(...processedTweets);
-        pagesProcessed = page + 1;
+        // Update offset for next page
+        offset += pageMessages.length;
 
-        // Check if there are more pages
-        nextToken = tweets.meta?.next_token;
-        if (!nextToken) break;
+        // Rate limiting
+        await this.respectRateLimit();
 
-        // Respect rate limits with longer delays
-        await this.waitForRateLimit();
+        // Check if we should continue
+        if (pageMessages.length < 20) hasMore = false; // Telegram typically shows 20 per page
       }
 
-      progress.complete(`Collected ${allTweets.length} quality tweets from @${username}`);
+      // Step 3: Process and enhance messages
+      progress.update(pageCount + 1, { step: 'Processing messages' });
+      
+      const processedMessages = allMessages
+        .slice(0, maxMessages) // Respect the limit
+        .map(msg => this.enhanceMessage(msg))
+        .filter(msg => this.passesQualityFilter(msg, config));
 
-      logger.info(`Successfully fetched tweets from @${username}`, {
-        total_tweets: allTweets.length,
-        pages_fetched: pagesProcessed,
-        api_calls_used: pagesProcessed + 1 // +1 for user lookup
-      });
+      progress.complete(`Scraped ${processedMessages.length} messages from t.me/${channelUsername}`);
 
-      return allTweets;
+      return {
+        channel: channelData.channel,
+        messages: processedMessages,
+        total_scraped: processedMessages.length,
+        has_more: hasMore,
+        next_offset: offset
+      };
 
     } catch (error: any) {
-      progress.fail(`Failed to fetch tweets from @${username}: ${error.message}`);
-      logger.error(`Twitter API error for @${username}`, error);
+      progress.fail(`Failed to scrape t.me/${channelUsername}: ${error.message}`);
+      logger.error(`Telegram scraping error for ${channelUsername}`, error);
       throw error;
     }
   }
 
   /**
-   * Get user information by username
+   * Fetch and parse channel main page
    */
-  private async getUserByUsername(username: string): Promise<TwitterUser | null> {
+  private async fetchChannelPage(url: string): Promise<{ channel: TelegramChannel | null; html: string }> {
     try {
-      const response = await this.client.v2.userByUsername(username, {
-        'user.fields': [
-          'description',
-          'public_metrics',
-          'verified'
-        ]
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': this.userAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate',
+          'Connection': 'keep-alive',
+        },
+        timeout: envConfig.apiTimeouts.telegram
       });
 
-      return response.data ? {
-        id: response.data.id,
-        username: response.data.username,
-        name: response.data.name,
-        description: response.data.description,
-        verified: response.data.verified || false,
-        followers_count: response.data.public_metrics?.followers_count || 0,
-        following_count: response.data.public_metrics?.following_count || 0,
-      } : null;
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Channel not found or is private');
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const html = await response.text();
+      const channel = this.parseChannelInfo(html, url);
+
+      return { channel, html };
 
     } catch (error) {
-      logger.error(`Failed to fetch user @${username}`, error);
+      logger.error(`Failed to fetch Telegram channel page: ${url}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Parse channel information from HTML
+   */
+  private parseChannelInfo(html: string, url: string): TelegramChannel | null {
+    try {
+      const dom = new JSDOM(html);
+      const document = dom.window.document;
+
+      // Extract channel info from meta tags and page content
+      const title = document.querySelector('.tgme_channel_info_header_title')?.textContent?.trim() ||
+                   document.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+                   'Unknown Channel';
+
+      const description = document.querySelector('.tgme_channel_info_description')?.textContent?.trim() ||
+                         document.querySelector('meta[property="og:description"]')?.getAttribute('content');
+
+      const username = url.split('/').pop() || '';
+
+      // Try to extract subscriber count
+      let subscribers: number | undefined;
+      const subscriberText = document.querySelector('.tgme_channel_info_counter')?.textContent;
+      if (subscriberText) {
+        const match = subscriberText.match(/(\d+(?:\.\d+)?)\s*([KMB]?)/i);
+        if (match) {
+          const [, num, suffix] = match;
+          const multipliers: { [key: string]: number } = { K: 1000, M: 1000000, B: 1000000000 };
+          subscribers = Math.floor(parseFloat(num) * (multipliers[suffix.toUpperCase()] || 1));
+        }
+      }
+
+      const photoUrl = document.querySelector('.tgme_channel_info_header_photo img')?.getAttribute('src');
+
+      return {
+        username,
+        title,
+        description: description || undefined,
+        subscribers,
+        photo_url: photoUrl || undefined
+      };
+
+    } catch (error) {
+      logger.error('Failed to parse channel info', error);
       return null;
     }
   }
 
   /**
-   * Fetch a single page of tweets
+   * Scrape messages from a specific page/offset
    */
-  private async fetchTweetPage(userId: string, options: any) {
-    return await this.client.v2.userTimeline(userId, {
-      ...options,
-      'tweet.fields': [
-        'created_at',
-        'public_metrics',
-        'entities',
-        'context_annotations'
-      ],
-      exclude: ['retweets', 'replies'], // Focus on original content
+  private async scrapeMessagesPage(
+    channelUsername: string, 
+    channel: TelegramChannel,
+    offset: number = 0
+  ): Promise<TelegramMessage[]> {
+    try {
+      // Telegram uses different URLs for pagination
+      const pageUrl = offset > 0 
+        ? `${this.baseUrl}/${channelUsername}?before=${offset}`
+        : `${this.baseUrl}/${channelUsername}`;
+
+      const response = await fetch(pageUrl, {
+        headers: { 'User-Agent': this.userAgent },
+        timeout: envConfig.apiTimeouts.telegram
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const html = await response.text();
+      return this.parseMessages(html, channel);
+
+    } catch (error) {
+      logger.error(`Failed to scrape messages page for ${channelUsername}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Parse messages from HTML
+   */
+  private parseMessages(html: string, channel: TelegramChannel): TelegramMessage[] {
+    try {
+      const dom = new JSDOM(html);
+      const document = dom.window.document;
+      
+      const messageElements = document.querySelectorAll('.tgme_widget_message');
+      const messages: TelegramMessage[] = [];
+
+      messageElements.forEach(element => {
+        try {
+          const message = this.parseMessage(element as any, channel);
+          if (message) {
+            messages.push(message);
+          }
+        } catch (error) {
+          logger.debug('Failed to parse individual message', error);
+          // Continue with other messages
+        }
+      });
+
+      return messages;
+
+    } catch (error) {
+      logger.error('Failed to parse messages from HTML', error);
+      return [];
+    }
+  }
+
+  /**
+   * Parse individual message element
+   */
+  private parseMessage(element: any, channel: TelegramChannel): TelegramMessage | null {
+    try {
+      // Extract message ID
+      const messageId = element.getAttribute('data-post')?.split('/')[1];
+      if (!messageId) return null;
+
+      // Extract text content
+      const textElement = element.querySelector('.tgme_widget_message_text');
+      const text = textElement?.textContent?.trim() || '';
+      
+      if (!text && !element.querySelector('.tgme_widget_message_photo, .tgme_widget_message_video')) {
+        return null; // Skip empty messages without media
+      }
+
+      // Extract timestamp
+      const timeElement = element.querySelector('.tgme_widget_message_date time');
+      const datetime = timeElement?.getAttribute('datetime');
+      const messageDate = datetime ? new Date(datetime).toISOString() : new Date().toISOString();
+
+      // Extract author (if available)
+      const authorElement = element.querySelector('.tgme_widget_message_from_author');
+      const author = authorElement?.textContent?.trim();
+
+      // Extract engagement metrics
+      const views = this.extractNumber(element.querySelector('.tgme_widget_message_views')?.textContent) || 0;
+      const forwards = this.extractNumber(element.querySelector('.tgme_widget_message_forwards')?.textContent) || 0;
+      const replies = this.extractNumber(element.querySelector('.tgme_widget_message_replies')?.textContent) || 0;
+
+      // Check for media
+      const hasMedia = !!(
+        element.querySelector('.tgme_widget_message_photo') ||
+        element.querySelector('.tgme_widget_message_video') ||
+        element.querySelector('.tgme_widget_message_document')
+      );
+
+      // Extract media description
+      const mediaDescription = element.querySelector('.tgme_widget_message_photo_caption, .tgme_widget_message_video_caption')?.textContent?.trim();
+
+      // Extract links
+      const linkElements = element.querySelectorAll('a[href]');
+      const links: string[] = [];
+      linkElements.forEach((link: any) => {
+        const href = link.getAttribute('href');
+        if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
+          links.push(href);
+        }
+      });
+
+      // Generate source URL
+      const sourceUrl = `${this.baseUrl}/${channel.username}/${messageId}`;
+
+      return {
+        id: `${channel.username}_${messageId}`,
+        message_id: messageId,
+        channel_username: channel.username,
+        channel_title: channel.title,
+        text: text + (mediaDescription ? `\n\n[Media: ${mediaDescription}]` : ''),
+        author,
+        message_date: messageDate,
+        views,
+        forwards,
+        replies,
+        has_media: hasMedia,
+        media_description: mediaDescription,
+        links,
+        quality_score: 0, // Will be calculated in enhanceMessage
+        source_url: sourceUrl,
+        raw_html: element.outerHTML,
+        fetched_at: new Date().toISOString()
+      };
+
+    } catch (error) {
+      logger.debug('Failed to parse message element', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract numeric value from text (handles K, M, B suffixes)
+   */
+  private extractNumber(text: string | null | undefined): number {
+    if (!text) return 0;
+    
+    const match = text.match(/(\d+(?:\.\d+)?)\s*([KMB]?)/i);
+    if (!match) return 0;
+
+    const [, num, suffix] = match;
+    const multipliers: { [key: string]: number } = { K: 1000, M: 1000000, B: 1000000000 };
+    return Math.floor(parseFloat(num) * (multipliers[suffix.toUpperCase()] || 1));
+  }
+
+  /**
+   * Filter messages based on options
+   */
+  private filterMessages(messages: TelegramMessage[], options: ScrapingOptions): TelegramMessage[] {
+    return messages.filter(message => {
+      const messageDate = new Date(message.message_date);
+
+      // Date filters
+      if (options.beforeDate && messageDate > options.beforeDate) return false;
+      if (options.afterDate && messageDate < options.afterDate) return false;
+
+      return true;
     });
   }
 
   /**
-   * Enhance tweet with additional data
+   * Enhance message with quality scoring
    */
-  private enhanceTweet(tweet: TweetV2, user: TwitterUser): TweetWithEngagement {
-    const engagementScore = this.calculateEngagementScore(tweet);
-    const qualityScore = this.calculateQualityScore(tweet, user);
-
-    return {
-      id: tweet.id,
-      text: tweet.text,
-      author_id: tweet.author_id!,
-      created_at: tweet.created_at!,
-      public_metrics: tweet.public_metrics!,
-      entities: tweet.entities,
-      context_annotations: tweet.context_annotations,
-      
-      // Enhanced fields
-      author_username: user.username,
-      author_name: user.name,
-      engagement_score: engagementScore,
-      quality_score: qualityScore,
-      processed_at: new Date().toISOString(),
-    };
+  private enhanceMessage(message: TelegramMessage): TelegramMessage {
+    const qualityScore = this.calculateQualityScore(message);
+    return { ...message, quality_score: qualityScore };
   }
 
   /**
-   * Calculate engagement score (simple metric)
+   * Calculate quality score for a message
    */
-  private calculateEngagementScore(tweet: TweetV2): number {
-    const metrics = tweet.public_metrics;
-    if (!metrics) return 0;
-
-    // Weighted engagement score
-    return (
-      metrics.like_count +
-      (metrics.retweet_count * 2) +  // Retweets worth more
-      (metrics.reply_count * 1.5) +  // Replies show engagement
-      (metrics.quote_count * 3)      // Quotes are highest value
-    );
-  }
-
-  /**
-   * Calculate quality score based on multiple factors
-   */
-  private calculateQualityScore(tweet: TweetV2, user: TwitterUser): number {
+  private calculateQualityScore(message: TelegramMessage): number {
     let score = 0.5; // Base score
 
     // Text quality indicators
-    const text = tweet.text.toLowerCase();
-    
-    // Positive indicators
-    if (tweet.entities?.urls?.length) score += 0.1; // Has links
-    if (tweet.entities?.hashtags?.length && tweet.entities.hashtags.length <= 3) score += 0.1; // Reasonable hashtags
-    if (text.includes('?')) score += 0.05; // Questions engage
-    if (tweet.context_annotations?.length) score += 0.1; // Twitter detected topics
-    
-    // Negative indicators
-    if (text.includes('follow me')) score -= 0.2; // Spam-like
-    if (text.includes('dm me')) score -= 0.1; // Promotional
-    if ((tweet.entities?.hashtags?.length || 0) > 5) score -= 0.2; // Hashtag spam
-    
-    // Author credibility
-    if (user.verified) score += 0.1;
-    if (user.followers_count > 10000) score += 0.1;
-    if (user.followers_count > 100000) score += 0.1;
-    
-    // Engagement factor
-    const engagementRatio = this.calculateEngagementScore(tweet) / Math.max(user.followers_count * 0.01, 1);
-    score += Math.min(engagementRatio, 0.2); // Cap the bonus
+    const text = message.text.toLowerCase();
+    const wordCount = text.split(/\s+/).length;
 
-    return Math.max(0, Math.min(1, score)); // Keep between 0 and 1
+    // Length indicators
+    if (wordCount >= 10) score += 0.1; // Substantial content
+    if (wordCount >= 50) score += 0.1; // Long-form content
+    if (wordCount > 200) score -= 0.1; // Too long might be spam
+
+    // Content quality indicators
+    if (message.links.length > 0 && message.links.length <= 3) score += 0.1; // Has relevant links
+    if (message.has_media && message.media_description) score += 0.1; // Quality media
+    if (text.includes('?')) score += 0.05; // Questions engage
+    if (/\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/.test(text)) score += 0.05; // Contains dates (news-like)
+
+    // Engagement indicators
+    const totalEngagement = message.views + (message.forwards * 10) + (message.replies * 5);
+    if (totalEngagement > 100) score += 0.1;
+    if (totalEngagement > 1000) score += 0.1;
+    if (totalEngagement > 10000) score += 0.1;
+
+    // Negative indicators
+    if (text.includes('subscribe') && text.includes('channel')) score -= 0.2; // Promotional
+    if ((text.match(/[@#]\w+/g)?.length || 0) > 5) score -= 0.1; // Tag spam
+    if (message.links.length > 5) score -= 0.2; // Link spam
+
+    return Math.max(0, Math.min(1, score)); // Clamp between 0 and 1
   }
 
   /**
-   * Check if tweet passes quality filters
+   * Check if message passes quality filters
    */
-  private passesQualityFilter(tweet: TweetWithEngagement, config: any): boolean {
+  private passesQualityFilter(message: TelegramMessage, config: any): boolean {
     // Length filter
-    if (tweet.text.length < config.minTweetLength) {
+    if (message.text.length < config.minMessageLength) {
       return false;
     }
 
-    // Engagement filter
-    if (tweet.engagement_score < config.minEngagementScore) {
-      return false;
-    }
-
-    // Quality filter (can be adjusted)
-    if (tweet.quality_score < 0.3) {
+    // Quality filter
+    if (message.quality_score < 0.3) {
       return false;
     }
 
@@ -403,182 +508,162 @@ export class TwitterClient {
   }
 
   /**
-   * Rate limiting management
+   * Rate limiting
    */
-  private async checkRateLimit(endpoint: string): Promise<void> {
-    const rateLimit = this.rateLimitInfo.get(endpoint);
-    
-    if (!rateLimit) return; // No previous info, proceed
-
-    const now = Math.floor(Date.now() / 1000);
-    
-    if (rateLimit.remaining <= 1 && now < rateLimit.reset) {
-      const waitTime = (rateLimit.reset - now + 1) * 1000;
-      logger.info(`Rate limit reached for ${endpoint}. Waiting ${waitTime}ms`);
-      
-      await new Promise(resolve => setTimeout(resolve, waitTime));
-    }
-  }
-
-  private async waitForRateLimit(): Promise<void> {
-    // Much more conservative delay between requests to preserve API quota
-    const delay = envConfig.development ? 3000 : 5000; // 3-5 seconds between requests
-    logger.info(`Waiting ${delay}ms to respect rate limits...`);
-    await new Promise(resolve => setTimeout(resolve, delay));
+  private async respectRateLimit(): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
   }
 
   /**
-   * Check API quota before making expensive calls
-   */
-  private async checkApiQuota(): Promise<void> {
-    try {
-      // Get current rate limit status
-      const rateLimits = await this.client.v1.get('application/rate_limit_status.json', {
-        resources: 'users,tweets'
-      });
-      
-      logger.info('API Quota Check:', rateLimits);
-      
-      // Warn if approaching limits
-      const userTimelineLimit = rateLimits?.resources?.tweets?.['/2/users/:id/tweets'];
-      if (userTimelineLimit && userTimelineLimit.remaining < 10) {
-        logger.warn('⚠️  API quota running low!', {
-          remaining: userTimelineLimit.remaining,
-          limit: userTimelineLimit.limit,
-          resets_at: new Date(userTimelineLimit.reset * 1000).toISOString()
-        });
-        
-        console.log('⚠️  WARNING: Twitter API quota is running low!');
-        console.log(`   Remaining calls: ${userTimelineLimit.remaining}/${userTimelineLimit.limit}`);
-        console.log(`   Resets at: ${new Date(userTimelineLimit.reset * 1000).toLocaleString()}`);
-      }
-      
-    } catch (error) {
-      // If quota check fails, proceed but with warning
-      logger.warn('Could not check API quota, proceeding with caution');
-    }
-  }
-
-  /**
-   * Test the connection
+   * Test connection to Telegram
    */
   async testConnection(): Promise<boolean> {
     try {
-      // Use a simple endpoint that works with OAuth 2.0 Application-Only
-      await this.client.v1.get('application/rate_limit_status.json');
-      logger.info('Twitter API connection test successful');
-      return true;
-    } catch (error: any) {
-      logger.error('Twitter API connection test failed', {
-        error: error.message,
-        code: error.code
+      const response = await fetch('https://t.me/telegram', {
+        headers: { 'User-Agent': this.userAgent },
+        timeout: 10000
       });
+      return response.ok;
+    } catch (error) {
+      logger.error('Telegram connection test failed', error);
       return false;
     }
   }
 }
 ```
 
-### 💾 Caching Layer for Twitter Data
+## 💾 Telegram Caching System
 
-Let's create a caching system to minimize API calls and costs:
+Let's create a caching layer for Telegram data:
 
 ```typescript
-// lib/twitter/twitter-cache.ts
+// lib/telegram/telegram-cache.ts
 
 import { supabase } from '../supabase/supabase-client';
-import { TweetWithEngagement } from '../../types/twitter';
-import { getXAccountConfig } from '../../config/data-sources-config';
+import { TelegramMessage } from '../../types/telegram';
+import { getTelegramChannelConfig } from '../../config/data-sources-config';
 import logger from '../logger';
 
-export class TwitterCache {
+export class TelegramCache {
   
   /**
-   * Check if we have fresh cached data for a user
+   * Check if we have fresh cached data for a channel
    */
-  async isCacheFresh(username: string): Promise<boolean> {
-    const config = getXAccountConfig(username);
+  async isCacheFresh(channelUsername: string): Promise<boolean> {
+    const config = getTelegramChannelConfig(channelUsername);
     const cacheThresholdMs = config.cacheHours * 60 * 60 * 1000;
     const cutoffTime = new Date(Date.now() - cacheThresholdMs).toISOString();
 
     const { data, error } = await supabase
-      .from('tweets')
-      .select('processed_at')
-      .eq('author_username', username)
-      .gte('processed_at', cutoffTime)
+      .from('telegram_messages')
+      .select('fetched_at')
+      .eq('channel_username', channelUsername)
+      .gte('fetched_at', cutoffTime)
       .limit(1);
 
     if (error) {
-      logger.error(`Cache check failed for @${username}`, error);
+      logger.error(`Cache check failed for t.me/${channelUsername}`, error);
       return false;
     }
 
     const isFresh = (data?.length || 0) > 0;
-    logger.info(`Cache check for @${username}: ${isFresh ? 'fresh' : 'stale'}`);
+    logger.info(`Cache check for t.me/${channelUsername}: ${isFresh ? 'fresh' : 'stale'}`);
     
     return isFresh;
   }
 
   /**
-   * Get cached tweets for a user
+   * Get cached messages for a channel
    */
-  async getCachedTweets(username: string): Promise<TweetWithEngagement[]> {
-    const config = getXAccountConfig(username);
+  async getCachedMessages(channelUsername: string): Promise<TelegramMessage[]> {
+    const config = getTelegramChannelConfig(channelUsername);
     const cacheThresholdMs = config.cacheHours * 60 * 60 * 1000;
     const cutoffTime = new Date(Date.now() - cacheThresholdMs).toISOString();
 
     const { data, error } = await supabase
-      .from('tweets')
+      .from('telegram_messages')
       .select('*')
-      .eq('author_username', username)
-      .gte('processed_at', cutoffTime)
-      .order('created_at', { ascending: false });
+      .eq('channel_username', channelUsername)
+      .gte('fetched_at', cutoffTime)
+      .order('message_date', { ascending: false })
+      .limit(config.messagesPerChannel);
 
     if (error) {
-      logger.error(`Failed to retrieve cached tweets for @${username}`, error);
+      logger.error(`Failed to retrieve cached messages for t.me/${channelUsername}`, error);
       return [];
     }
 
-    logger.info(`Retrieved ${data?.length || 0} cached tweets for @${username}`);
-    return data || [];
+    logger.info(`Retrieved ${data?.length || 0} cached messages for t.me/${channelUsername}`);
+    
+    // Convert database format back to TelegramMessage format
+    return (data || []).map(this.dbToTelegramMessage);
   }
 
   /**
-   * Store tweets in cache
+   * Store messages in cache
    */
-  async storeTweets(tweets: TweetWithEngagement[]): Promise<void> {
-    if (tweets.length === 0) return;
+  async storeMessages(messages: TelegramMessage[]): Promise<void> {
+    if (messages.length === 0) return;
 
     // Prepare data for database
-    const dbTweets = tweets.map(tweet => ({
-      id: tweet.id,
-      text: tweet.text,
-      author_id: tweet.author_id,
-      author_username: tweet.author_username,
-      author_name: tweet.author_name,
-      created_at: tweet.created_at,
-      retweet_count: tweet.public_metrics.retweet_count,
-      like_count: tweet.public_metrics.like_count,
-      reply_count: tweet.public_metrics.reply_count,
-      quote_count: tweet.public_metrics.quote_count,
-      engagement_score: tweet.engagement_score,
-      quality_score: tweet.quality_score,
-      source_url: `https://twitter.com/${tweet.author_username}/status/${tweet.id}`,
-      raw_data: tweet,
-      processed_at: tweet.processed_at,
+    const dbMessages = messages.map(message => ({
+      id: message.id,
+      message_id: message.message_id,
+      channel_username: message.channel_username,
+      channel_title: message.channel_title,
+      text: message.text,
+      author: message.author,
+      message_date: message.message_date,
+      views: message.views,
+      forwards: message.forwards,
+      replies: message.replies,
+      quality_score: message.quality_score,
+      source_url: message.source_url,
+      raw_data: {
+        has_media: message.has_media,
+        media_description: message.media_description,
+        links: message.links,
+        raw_html: message.raw_html
+      },
+      fetched_at: message.fetched_at,
     }));
 
     // Use upsert to handle duplicates
     const { error } = await supabase
-      .from('tweets')
-      .upsert(dbTweets, { onConflict: 'id' });
+      .from('telegram_messages')
+      .upsert(dbMessages, { onConflict: 'message_id,channel_username' });
 
     if (error) {
-      logger.error('Failed to store tweets in cache', error);
+      logger.error('Failed to store Telegram messages in cache', error);
       throw error;
     }
 
-    logger.info(`Stored ${tweets.length} tweets in cache`);
+    logger.info(`Stored ${messages.length} Telegram messages in cache`);
+  }
+
+  /**
+   * Convert database row back to TelegramMessage
+   */
+  private dbToTelegramMessage(dbRow: any): TelegramMessage {
+    return {
+      id: dbRow.id,
+      message_id: dbRow.message_id,
+      channel_username: dbRow.channel_username,
+      channel_title: dbRow.channel_title,
+      text: dbRow.text,
+      author: dbRow.author,
+      message_date: dbRow.message_date,
+      views: dbRow.views,
+      forwards: dbRow.forwards,
+      replies: dbRow.replies,
+      has_media: dbRow.raw_data?.has_media || false,
+      media_description: dbRow.raw_data?.media_description,
+      links: dbRow.raw_data?.links || [],
+      quality_score: dbRow.quality_score,
+      source_url: dbRow.source_url,
+      raw_html: dbRow.raw_data?.raw_html,
+      fetched_at: dbRow.fetched_at,
+    };
   }
 
   /**
@@ -589,128 +674,147 @@ export class TwitterCache {
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
     const { error } = await supabase
-      .from('tweets')
+      .from('telegram_messages')
       .delete()
-      .lt('processed_at', cutoffDate.toISOString());
+      .lt('fetched_at', cutoffDate.toISOString());
 
     if (error) {
-      logger.error('Failed to clean old cache entries', error);
+      logger.error('Failed to clean old Telegram cache entries', error);
     } else {
-      logger.info(`Cleaned cache entries older than ${olderThanDays} days`);
+      logger.info(`Cleaned Telegram cache entries older than ${olderThanDays} days`);
     }
   }
 }
 ```
 
-### 🧪 Testing Your Twitter Integration
+## 🧪 Testing Your Telegram Scraper
 
 Let's create a comprehensive test:
 
 ```typescript
-// scripts/test/test-twitter.ts
+// scripts/test/test-telegram.ts
 
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { TwitterClient } from '../../lib/twitter/twitter-client';
-import { TwitterCache } from '../../lib/twitter/twitter-cache';
+import { TelegramScraper } from '../../lib/telegram/telegram-scraper';
+import { TelegramCache } from '../../lib/telegram/telegram-cache';
 import logger from '../../lib/logger';
 
-async function testTwitterIntegration() {
-  console.log('🐦 Testing Twitter Integration...\n');
+async function testTelegramScraping() {
+  console.log('📱 Testing Telegram Scraping...\n');
 
   try {
     // Test 1: Connection
-    console.log('1. Testing API Connection:');
-    const client = new TwitterClient();
-    const connected = await client.testConnection();
+    console.log('1. Testing Connection:');
+    const scraper = new TelegramScraper();
+    const connected = await scraper.testConnection();
     
     if (!connected) {
-      throw new Error('Twitter API connection failed. Check your credentials.');
+      throw new Error('Cannot connect to Telegram');
     }
-    console.log('✅ Twitter API connection successful');
+    console.log('✅ Telegram connection successful');
 
-    // Test 2: Fetch tweets from a reliable account
-    console.log('\n2. Testing Tweet Fetching:');
-    const testUsername = 'OpenAI'; // Use a reliable, active account
+    // Test 2: Scrape a reliable public channel
+    console.log('\n2. Testing Channel Scraping:');
     
-    const tweets = await client.fetchUserTweets(testUsername);
-    console.log(`✅ Fetched ${tweets.length} tweets from @${testUsername}`);
+    // Use a well-known public channel that always has content
+    const testChannel = 'telegram'; // Official Telegram channel
+    
+    const result = await scraper.scrapeChannel(testChannel, { maxMessages: 5 });
+    
+    console.log(`✅ Scraped ${result.messages.length} messages from t.me/${testChannel}`);
+    console.log(`   Channel: ${result.channel.title}`);
+    console.log(`   Subscribers: ${result.channel.subscribers?.toLocaleString() || 'Unknown'}`);
 
-    if (tweets.length > 0) {
-      const sampleTweet = tweets[0];
-      console.log(`   Sample tweet: "${sampleTweet.text.substring(0, 100)}..."`);
-      console.log(`   Engagement score: ${sampleTweet.engagement_score}`);
-      console.log(`   Quality score: ${sampleTweet.quality_score.toFixed(2)}`);
+    if (result.messages.length > 0) {
+      const sampleMessage = result.messages[0];
+      console.log(`   Sample message: "${sampleMessage.text.substring(0, 100)}..."`);
+      console.log(`   Views: ${sampleMessage.views.toLocaleString()}`);
+      console.log(`   Quality score: ${sampleMessage.quality_score.toFixed(2)}`);
     }
 
     // Test 3: Caching
     console.log('\n3. Testing Caching System:');
-    const cache = new TwitterCache();
+    const cache = new TelegramCache();
     
-    await cache.storeTweets(tweets);
-    console.log('✅ Tweets stored in cache');
+    await cache.storeMessages(result.messages);
+    console.log('✅ Messages stored in cache');
     
-    const cachedTweets = await cache.getCachedTweets(testUsername);
-    console.log(`✅ Retrieved ${cachedTweets.length} tweets from cache`);
+    const cachedMessages = await cache.getCachedMessages(testChannel);
+    console.log(`✅ Retrieved ${cachedMessages.length} messages from cache`);
     
-    const isFresh = await cache.isCacheFresh(testUsername);
+    const isFresh = await cache.isCacheFresh(testChannel);
     console.log(`✅ Cache freshness check: ${isFresh ? 'Fresh' : 'Stale'}`);
 
-    console.log('\n🎉 Twitter integration test completed successfully!');
-    console.log(`💰 API calls made: ~3 (user lookup + 1-2 tweet pages)`);
+    // Test 4: Quality filtering
+    console.log('\n4. Testing Quality Filtering:');
+    const highQualityMessages = result.messages.filter(msg => msg.quality_score > 0.6);
+    const mediumQualityMessages = result.messages.filter(msg => msg.quality_score > 0.4 && msg.quality_score <= 0.6);
+    const lowQualityMessages = result.messages.filter(msg => msg.quality_score <= 0.4);
+    
+    console.log(`✅ Quality distribution:`);
+    console.log(`   High quality (>0.6): ${highQualityMessages.length} messages`);
+    console.log(`   Medium quality (0.4-0.6): ${mediumQualityMessages.length} messages`);
+    console.log(`   Low quality (≤0.4): ${lowQualityMessages.length} messages`);
+
+    console.log('\n🎉 Telegram scraping test completed successfully!');
+    console.log('💰 Cost: $0.00 (completely free!)');
 
   } catch (error: any) {
-    logger.error('Twitter integration test failed', error);
+    logger.error('Telegram scraping test failed', error);
     console.error('\n❌ Test failed:', error.message);
     
-    if (error.message.includes('credentials')) {
-      console.log('\n💡 Make sure you have valid Twitter API credentials in .env.local');
-      console.log('   Visit https://developer.twitter.com to get API access');
+    if (error.message.includes('not found')) {
+      console.log('\n💡 The test channel might be private or renamed');
+      console.log('   Try testing with a different public channel like "durov" or "telegram"');
     }
     
     process.exit(1);
   }
 }
 
-testTwitterIntegration();
+testTelegramScraping();
 ```
 
-### 🔄 Mock Twitter Data (For Testing Without API)
+## 📝 Popular Telegram Channels to Start With
 
-If you want to test without using the API, create mock data:
+Here are some great public channels for testing (all completely free):
 
 ```typescript
-// lib/twitter/twitter-mock.ts
+// config/telegram-channels.ts
 
-import { TweetWithEngagement } from '../../types/twitter';
-
-export function createMockTweets(username: string, count: number = 10): TweetWithEngagement[] {
-  const baseTime = Date.now();
+export const popularChannels = {
+  // Crypto & Finance
+  crypto: [
+    'whalealert',           // Whale Alert - Large crypto transactions
+    'bitcoinmagazine',      // Bitcoin Magazine
+    'coindesk',            // CoinDesk News
+    'cryptoquant_com',     // CryptoQuant Analytics
+  ],
   
-  return Array.from({ length: count }, (_, i) => ({
-    id: `mock_${username}_${i}`,
-    text: `This is a mock tweet #${i + 1} from @${username}. It contains some interesting content about AI and technology trends. Mock tweets help you test without API costs!`,
-    author_id: `mock_author_${username}`,
-    created_at: new Date(baseTime - (i * 3600000)).toISOString(), // 1 hour apart
-    
-    public_metrics: {
-      retweet_count: Math.floor(Math.random() * 50),
-      like_count: Math.floor(Math.random() * 200),
-      reply_count: Math.floor(Math.random() * 20),
-      quote_count: Math.floor(Math.random() * 10),
-    },
-    
-    author_username: username,
-    author_name: username.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
-    engagement_score: Math.floor(Math.random() * 100),
-    quality_score: 0.5 + (Math.random() * 0.4), // 0.5 to 0.9
-    processed_at: new Date().toISOString(),
-  }));
-}
-
-// Use in your code like this:
-// const mockTweets = createMockTweets('elonmusk', 20);
+  // Tech & AI
+  tech: [
+    'openai_news',         // OpenAI Updates
+    'techcrunch',          // TechCrunch
+    'hackernews',          // Hacker News
+    'artificial_intel',    // AI News
+  ],
+  
+  // News & General
+  news: [
+    'bbcnews',            // BBC News
+    'cnnnews',            // CNN News
+    'reuters',            // Reuters
+    'apnews',             // Associated Press
+  ],
+  
+  // Test channels (always active)
+  test: [
+    'telegram',           // Official Telegram
+    'durov',             // Pavel Durov (Telegram founder)
+  ]
+};
 ```
 
 
@@ -718,170 +822,60 @@ export function createMockTweets(username: string, count: number = 10): TweetWit
 ```json
 {
   "scripts": {
-    "test:twitter": "npm run script scripts/test/test-twitter.ts"
+    "test:telegram": "npm run script scripts/test/test-telegram.ts"
   }
 }
 ```
 
-**Environment variables needed:**
-```env
-X_API_KEY=your_api_key_here
-X_API_SECRET=your_api_secret_here  
-X_BEARER_TOKEN=your_bearer_token_here
-```
-
 **Test your integration:**
 ```bash
-npm run test:twitter
+npm run test:telegram
 ```
-
-### ⚠️ Common Pitfalls
-
-#### 1. **Authentication Method Mismatch** 🔐
-**Problem**: Getting 403 "Unsupported Authentication" errors even with correct credentials.
-
-**Root Cause**: Twitter API v2 requires **Bearer Token authentication** for OAuth 2.0 Application-Only access, not just App Key/Secret.
-
-**Error Messages to Watch For**:
-```
-"Authenticating with Unknown is forbidden for this endpoint"
-"Supported authentication types are [OAuth 1.0a User Context, OAuth 2.0 Application-Only, OAuth 2.0 User Context]"
-```
-
-**Solution**: Ensure you have `X_BEARER_TOKEN` in your `.env.local`:
-```bash
-# Required for Twitter API v2
-X_BEARER_TOKEN=your_bearer_token_here
-
-# Optional fallbacks
-X_API_KEY=your_api_key
-X_API_SECRET=your_api_secret
-```
-
-**How to Get Bearer Token**:
-1. Go to [Twitter Developer Portal](https://developer.twitter.com)
-2. Navigate to your app → Keys and Tokens
-3. Generate/Copy the "Bearer Token" (starts with `AAAAAAAAAA...`)
-
-#### 2. **Rate Limit Confusion** ⏱️
-**Problem**: Hitting rate limits unexpectedly.
-
-**Common Mistakes**:
-- Not implementing proper delays between requests
-- Using v1 endpoints when v2 would be more efficient
-- Making unnecessary duplicate calls
-
-**Solution**: Our implementation includes automatic rate limiting and caching.
-
-#### 3. **Environment Variable Loading** 🔧
-**Problem**: Variables not loading despite being in `.env.local`.
-
-**Debug Steps**:
-```javascript
-// Add temporary debug logging
-console.log('X_BEARER_TOKEN present:', !!process.env.X_BEARER_TOKEN);
-console.log('X_BEARER_TOKEN length:', process.env.X_BEARER_TOKEN?.length || 0);
-```
-
-**Common Issues**:
-- File not named exactly `.env.local`
-- File in wrong directory (should be project root)
-- Spaces around the `=` sign
-- Missing quotes around values with special characters
-
-#### 4. **API Access Level Limitations** 📋
-**Problem**: Some endpoints return 403 even with correct authentication.
-
-**Check Your Access Level**:
-- **Basic**: Very limited, mostly unusable for real applications
-- **Essential**: Good for testing and small projects
-- **Elevated**: Required for production applications
-
-**Upgrade if needed** at [Twitter Developer Portal](https://developer.twitter.com/portal/products)
-
-#### 5. **API Quota Exhaustion** 💸
-**Problem**: Getting 429 errors after successful authentication and initial requests.
-
-**Root Cause**: Twitter API has very low monthly limits:
-- **Basic**: 100 posts/month (exhausted in one test!)
-- **Essential**: 500,000 posts/month
-- **Elevated**: Higher limits
-
-**Critical Warning**: 
-```
-🚨 ONE TEST RUN CAN EXHAUST YOUR ENTIRE MONTHLY QUOTA!
-```
-
-**Solutions**:
-```javascript
-// 1. ALWAYS use mock data for testing
-const tweets = createMockTweets(testUsername, 20);
-
-// 2. Only use real API calls in production with monitoring
-if (process.env.NODE_ENV === 'production') {
-  const tweets = await client.fetchUserTweets(username);
-}
-
-// 3. Add quota checking before expensive calls
-await this.checkApiQuota();
-```
-
-**Recovery**: Wait until your quota resets (shown in Twitter Developer Portal) or upgrade your plan.
-
-**Best Practices**:
-- Use mock data for all development and testing
-- Implement quota monitoring
-- Cache aggressively to minimize API calls
-- Start with minimal `maxPages` and `tweetsPerRequest` in config
 
 ## 🎯 What We've Accomplished
 
-You now have a production-ready Twitter integration that:
+You now have a powerful, completely free Telegram scraping system:
 
-✅ **Handles API authentication** with proper credentials  
-✅ **Respects rate limits** to avoid being blocked  
-✅ **Implements intelligent caching** to minimize costs  
-✅ **Filters for quality content** using multiple metrics  
-✅ **Provides comprehensive error handling**  
-✅ **Includes testing and mocking capabilities**  
+✅ **Web scraping without APIs** - No tokens or authentication needed  
+✅ **Rich content extraction** - Text, media, engagement metrics  
+✅ **Intelligent quality scoring** - Filter noise, keep valuable content  
+✅ **Robust error handling** - Graceful failures and retries  
+✅ **Smart caching system** - Avoid redundant scraping  
+✅ **Rate limiting** - Respectful scraping that won't get blocked  
 
-### 💰 Cost Management Tips
+### 🔍 Pro Tips & Common Pitfalls
 
-**🔧 Optimize API Usage:**
-- Start with `maxPages: 1` in config for testing
-- Use longer cache times (`cacheHours: 8`) to reduce calls
-- Focus on high-quality accounts that post regularly
-- Monitor your usage in Twitter's developer dashboard
+**💡 Pro Tip:** Start with well-established channels that post regularly. They have consistent HTML structure and rich content.
 
-**📊 Track Your Costs:**
-- Each user timeline request counts toward your limit
-- User lookups also count (but we only do one per user)
-- Cache aggressively in production
+**⚠️ Common Pitfall:** Don't scrape too aggressively. Use delays between requests to avoid being rate-limited.
+
+**🔧 Performance Tip:** Cache aggressively. Telegram content doesn't change, so 5+ hour cache times are perfect.
+
+**⚖️ Legal Note:** Only scrape public channels. Private channels require permission and different techniques.
 
 ---
 
-### 📋 Complete Code Summary - Chapter 4
+### 📋 Complete Code Summary - Chapter 5
 
-**Core Twitter Client:**
+**Core Telegram Scraper:**
 ```typescript
-// lib/twitter/twitter-client.ts - Full-featured API client
-// lib/twitter/twitter-cache.ts - Intelligent caching layer
-// lib/twitter/twitter-mock.ts - Mock data for testing
+// lib/telegram/telegram-scraper.ts - Full web scraping implementation
+// lib/telegram/telegram-cache.ts - Intelligent caching system
 ```
 
 **Types and Configuration:**
 ```typescript
-// types/twitter.ts - Twitter data structures
-// Updated config with Twitter-specific settings
+// types/telegram.ts - Telegram data structures
+// config/telegram-channels.ts - Popular channel lists
 ```
 
 **Testing:**
 ```typescript
-// scripts/test/test-twitter.ts - Comprehensive integration test
+// scripts/test/test-telegram.ts - Comprehensive scraping test
 ```
 
-**Next up:** In Chapter 5, we'll build our **free** Telegram scraping system! No API costs, rich content, and we'll learn advanced web scraping techniques with DOM parsing and rate limiting.
+**Next up:** In Chapter 6, we'll add RSS feed processing to complete our data collection trinity. RSS feeds are perfect for getting structured content from news sites, blogs, and research publications - also completely free!
 
 ---
 
-*Ready to move on to free data sources? Chapter 5 will show you how to extract valuable insights from Telegram channels without spending a dime! 💰→📱*
+*Ready to add the final piece of our data collection puzzle? Chapter 6 will show you how to parse RSS feeds and extract valuable long-form content that complements your social media data! 📰*
