@@ -2,6 +2,8 @@
 
 export interface EnvironmentConfig {
     development: boolean;
+    supabaseUrl: string;
+    supabaseServiceKey: string;
     apiTimeouts: {
       twitter: number;
       telegram: number;
@@ -22,6 +24,8 @@ export interface EnvironmentConfig {
     
     return {
       development: isDev,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
       
       apiTimeouts: {
         twitter: isDev ? 10000 : 30000,    // Shorter timeouts in dev
