@@ -1,4 +1,0 @@
-{"level":"info","message":"Started: Scraping t.me/telegram","service":"cl-digest-bot","timestamp":"2025-07-30T09:17:14.393Z","total":1}
-{"duration_formatted":"0.13s","duration_ms":126,"level":"info","message":"Scraped 0 messages from t.me/telegram","service":"cl-digest-bot","timestamp":"2025-07-30T09:17:14.515Z"}
-{"level":"info","message":"Retrieved 0 cached messages for t.me/telegram","service":"cl-digest-bot","timestamp":"2025-07-30T09:17:15.064Z"}
-{"level":"info","message":"Cache check for t.me/telegram: stale","service":"cl-digest-bot","timestamp":"2025-07-30T09:17:15.216Z"}

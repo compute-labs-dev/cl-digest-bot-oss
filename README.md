@@ -1,667 +1,706 @@
-# Chapter 5: Mining Telegram Channels - Free Data Gold Rush
+# Chapter 6: RSS Feed Processing - Harvesting the News Ecosystem
 
-*"The best things in life are free." - Luther Vandross*
+*"News is what somebody somewhere wants to suppress; all the rest is advertising." - Lord Northcliffe*
 
 ---
 
-Welcome to the treasure hunt! While Twitter charges premium prices for their data, Telegram channels are completely open and free to scrape. We're talking about **millions of messages** from crypto analysts, AI researchers, news channels, and industry insiders - all available without spending a penny.
+Welcome to the final piece of our data collection puzzle! While social media gives us real-time chatter, RSS feeds provide something equally valuable: **structured, long-form content** from the world's most authoritative sources.
 
-Telegram has become the go-to platform for:
-- **Crypto communities** sharing alpha and market insights
-- **Tech channels** breaking AI and startup news  
-- **Financial analysts** posting real-time market commentary
-- **News outlets** with faster-than-Twitter updates
+RSS (Really Simple Syndication) is the unsung hero of content distribution. Every major news site, blog, and research publication offers RSS feeds - clean, structured XML that's perfect for automated processing. Best of all? It's completely free and designed for exactly what we're doing.
 
-In this chapter, we'll build a sophisticated web scraping system that extracts valuable content from Telegram channels while respecting rate limits and avoiding detection.
+In this chapter, we'll build a sophisticated RSS processing system that doesn't just collect articles, but extracts their full content, analyzes quality, and prepares them for AI analysis.
 
-## 🎯 What We're Building
+## 🌐 Why RSS Feeds Are Gold for AI Systems
 
-A Telegram scraping system that:
-- **Scrapes public channels** without authentication
-- **Parses rich content** (text, media, links, reactions)
-- **Handles dynamic loading** and pagination
-- **Respects rate limits** to avoid being blocked
-- **Extracts engagement metrics** (views, forwards, replies)
-- **Caches intelligently** for performance
+RSS feeds give us:
+- **Structured content** with clean metadata (title, author, date, categories)
+- **Full-text articles** (not just headlines)
+- **Authoritative sources** (major news outlets, research institutions)
+- **Consistent formatting** (XML makes parsing reliable)
+- **No rate limits** (feeds are designed to be polled regularly)
+- **Historical context** (articles include publication dates and categories)
 
-**Best part?** It's completely free and legal (for public channels).
+## 📊 RSS Data Types
 
-## 🌐 Understanding Telegram's Web Interface
-
-Telegram provides a web interface at `https://t.me/channel_name` that we can scrape. Unlike their Bot API (which requires tokens and has limitations), web scraping gives us access to:
-
-- **All public messages** in chronological order
-- **Full message content** including media descriptions
-- **Engagement metrics** (views, forwards)
-- **Message metadata** (timestamps, authors)
-- **Channel information** (subscriber count, description)
-
-## 📊 Telegram Data Types
-
-Let's define our data structures:
+Let's define our data structures for RSS content:
 
 ```typescript
-// types/telegram.ts
+// types/rss.ts
 
-export interface TelegramChannel {
-  username: string;      // Channel username (without @)
-  title: string;         // Display name
-  description?: string;  // Channel description
-  subscribers?: number;  // Subscriber count
-  photo_url?: string;   // Channel avatar
+export interface RSSFeed {
+  url: string;
+  title: string;
+  description?: string;
+  link?: string;
+  language?: string;
+  last_build_date?: string;
+  image_url?: string;
+  category?: string[];
 }
 
-export interface TelegramMessage {
-  id: string;                    // Unique message ID
-  message_id: string;            // Telegram's internal ID
-  channel_username: string;      // Source channel
-  channel_title: string;        // Channel display name
-  text: string;                  // Message content
-  author?: string;               // Message author (if available)
-  message_date: string;          // When posted
+export interface RSSArticle {
+  id: string;                    // Generated unique ID
+  title: string;                 // Article headline
+  link: string;                  // Original article URL
+  description?: string;          // Article summary/excerpt
+  content?: string;              // Full article content
+  author?: string;               // Article author
+  published_at?: string;         // Publication date
   
-  // Engagement metrics
-  views: number;                 // View count
-  forwards: number;              // Forward count
-  replies: number;               // Reply count
+  // Feed metadata
+  feed_url: string;              // Source feed URL
+  feed_title?: string;           // Source publication name
   
   // Content analysis
-  has_media: boolean;            // Contains photos/videos
-  media_description?: string;    // Alt text for media
-  links: string[];               // Extracted URLs
+  word_count: number;            // Article length
+  quality_score: number;         // Our quality assessment
+  categories: string[];          // Article tags/categories
   
   // Processing metadata
-  quality_score: number;         // Our quality assessment
-  source_url: string;           // Direct link to message
-  raw_html?: string;            // Original HTML (for debugging)
-  fetched_at: string;           // When we scraped it
+  content_extracted: boolean;    // Whether we got full content
+  extraction_method?: string;    // How we got the content
+  raw_data: any;                // Original RSS item data
+  fetched_at: string;           // When we processed it
 }
 
-export interface TelegramScrapeResult {
-  channel: TelegramChannel;
-  messages: TelegramMessage[];
-  total_scraped: number;
-  has_more: boolean;
-  next_offset?: number;
+export interface RSSProcessingResult {
+  feed: RSSFeed;
+  articles: RSSArticle[];
+  total_processed: number;
+  successful_extractions: number;
+  errors: string[];
 }
 ```
 
-## 🕷️ Building the Telegram Scraper
+## 🔧 Building the RSS Processor
 
-Now let's build our scraper using JSDOM to parse HTML:
+Let's build our RSS processing system:
 
 ```typescript
-// lib/telegram/telegram-scraper.ts
+// lib/rss/rss-processor.ts
 
+import { XMLParser } from 'fast-xml-parser';
 import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
-import { TelegramChannel, TelegramMessage, TelegramScrapeResult } from '../../types/telegram';
-import { getTelegramChannelConfig } from '../../config/data-sources-config';
+import { RSSFeed, RSSArticle, RSSProcessingResult } from '../../types/rss';
+import { getRssFeedConfig } from '../../config/data-sources-config';
 import { envConfig } from '../../config/environment';
 import logger from '../logger';
 import { ProgressTracker } from '../../utils/progress';
+import crypto from 'crypto';
 
-interface ScrapingOptions {
-  maxMessages?: number;
-  beforeDate?: Date;
-  afterDate?: Date;
+interface RSSParseOptions {
+  maxArticles?: number;
+  extractFullContent?: boolean;
+  includeOldArticles?: boolean;
+  sinceDate?: Date;
 }
 
-export class TelegramScraper {
-  private readonly baseUrl = 'https://t.me';
-  private readonly userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-  private rateLimitDelay = envConfig.development ? 2000 : 5000; // More conservative in production
+export class RSSProcessor {
+  private xmlParser: XMLParser;
+  private readonly userAgent = 'Mozilla/5.0 (compatible; ContentBot/1.0; +https://yoursite.com/bot)';
+
+  constructor() {
+    // Configure XML parser for RSS feeds
+    this.xmlParser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '@_',
+      textNodeName: '#text',
+      parseTagValue: true,
+      parseAttributeValue: true,
+      trimValues: true,
+    });
+  }
 
   /**
-   * Scrape messages from a Telegram channel
+   * Process RSS feed and extract articles
    */
-  async scrapeChannel(channelUsername: string, options: ScrapingOptions = {}): Promise<TelegramScrapeResult> {
-    const config = getTelegramChannelConfig(channelUsername);
-    const maxMessages = options.maxMessages || config.messagesPerChannel;
+  async processFeed(feedUrl: string, options: RSSParseOptions = {}): Promise<RSSProcessingResult> {
+    const config = getRssFeedConfig(feedUrl);
+    const maxArticles = options.maxArticles || config.articlesPerFeed;
     
     const progress = new ProgressTracker({
-      total: Math.ceil(maxMessages / 20), // Estimate pages (20 messages per page)
-      label: `Scraping t.me/${channelUsername}`
+      total: 4, // Fetch, parse, extract content, process
+      label: `Processing RSS feed: ${this.getFeedDisplayName(feedUrl)}`
     });
 
+    const result: RSSProcessingResult = {
+      feed: { url: feedUrl, title: 'Unknown Feed' },
+      articles: [],
+      total_processed: 0,
+      successful_extractions: 0,
+      errors: []
+    };
+
     try {
-      // Step 1: Get channel info and first batch of messages
-      progress.update(1, { step: 'Loading channel' });
+      // Step 1: Fetch RSS XML
+      progress.update(1, { step: 'Fetching RSS XML' });
+      const xmlContent = await this.fetchFeedXML(feedUrl);
+
+      // Step 2: Parse RSS structure
+      progress.update(2, { step: 'Parsing RSS structure' });
+      const parsedFeed = this.parseRSSXML(xmlContent);
       
-      const channelUrl = `${this.baseUrl}/${channelUsername}`;
-      const channelData = await this.fetchChannelPage(channelUrl);
-      
-      if (!channelData.channel) {
-        throw new Error(`Channel @${channelUsername} not found or is private`);
+      result.feed = this.extractFeedInfo(parsedFeed, feedUrl);
+      const rawArticles = this.extractRawArticles(parsedFeed, result.feed);
+
+      // Filter and limit articles
+      const filteredArticles = this.filterArticles(rawArticles, options)
+        .slice(0, maxArticles);
+
+      result.total_processed = filteredArticles.length;
+
+      if (filteredArticles.length === 0) {
+        progress.complete('No new articles found');
+        return result;
       }
 
-      let allMessages: TelegramMessage[] = [];
-      let hasMore = true;
-      let offset = 0;
-      let pageCount = 0;
-
-      // Step 2: Paginate through messages
-      while (hasMore && allMessages.length < maxMessages && pageCount < 10) {
-        pageCount++;
-        progress.update(pageCount, { step: `Page ${pageCount}` });
-
-        const pageMessages = await this.scrapeMessagesPage(
-          channelUsername, 
-          channelData.channel,
-          offset
-        );
-
-        if (pageMessages.length === 0) {
-          hasMore = false;
-          break;
-        }
-
-        // Filter messages based on options
-        const filteredMessages = this.filterMessages(pageMessages, options);
-        allMessages.push(...filteredMessages);
-
-        // Update offset for next page
-        offset += pageMessages.length;
-
-        // Rate limiting
-        await this.respectRateLimit();
-
-        // Check if we should continue
-        if (pageMessages.length < 20) hasMore = false; // Telegram typically shows 20 per page
+      // Step 3: Extract full content (if requested)
+      progress.update(3, { step: 'Extracting full content' });
+      
+      if (options.extractFullContent !== false) {
+        await this.extractFullContent(filteredArticles, result.errors);
+        result.successful_extractions = filteredArticles.filter(a => a.content_extracted).length;
       }
 
-      // Step 3: Process and enhance messages
-      progress.update(pageCount + 1, { step: 'Processing messages' });
-      
-      const processedMessages = allMessages
-        .slice(0, maxMessages) // Respect the limit
-        .map(msg => this.enhanceMessage(msg))
-        .filter(msg => this.passesQualityFilter(msg, config));
+      // Step 4: Process and enhance articles
+      progress.update(4, { step: 'Processing articles' });
+      result.articles = filteredArticles
+        .map(article => this.enhanceArticle(article, config))
+        .filter(article => this.passesQualityFilter(article, config));
 
-      progress.complete(`Scraped ${processedMessages.length} messages from t.me/${channelUsername}`);
+      progress.complete(`Processed ${result.articles.length} quality articles from RSS feed`);
 
-      return {
-        channel: channelData.channel,
-        messages: processedMessages,
-        total_scraped: processedMessages.length,
-        has_more: hasMore,
-        next_offset: offset
-      };
+      logger.info(`RSS processing completed for ${feedUrl}`, {
+        total_articles: result.total_processed,
+        quality_articles: result.articles.length,
+        extraction_success_rate: result.successful_extractions / result.total_processed,
+        errors: result.errors.length
+      });
+
+      return result;
 
     } catch (error: any) {
-      progress.fail(`Failed to scrape t.me/${channelUsername}: ${error.message}`);
-      logger.error(`Telegram scraping error for ${channelUsername}`, error);
+      progress.fail(`Failed to process RSS feed: ${error.message}`);
+      logger.error(`RSS processing error for ${feedUrl}`, error);
+      result.errors.push(error.message);
       throw error;
     }
   }
 
   /**
-   * Fetch and parse channel main page
+   * Fetch RSS XML from URL
    */
-  private async fetchChannelPage(url: string): Promise<{ channel: TelegramChannel | null; html: string }> {
+  private async fetchFeedXML(feedUrl: string): Promise<string> {
     try {
-      const response = await fetch(url, {
+      const response = await fetch(feedUrl, {
         headers: {
           'User-Agent': this.userAgent,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
           'Accept-Encoding': 'gzip, deflate',
-          'Connection': 'keep-alive',
         },
-        timeout: envConfig.apiTimeouts.telegram
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('Channel not found or is private');
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-      const channel = this.parseChannelInfo(html, url);
-
-      return { channel, html };
-
-    } catch (error) {
-      logger.error(`Failed to fetch Telegram channel page: ${url}`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Parse channel information from HTML
-   */
-  private parseChannelInfo(html: string, url: string): TelegramChannel | null {
-    try {
-      const dom = new JSDOM(html);
-      const document = dom.window.document;
-
-      // Extract channel info from meta tags and page content
-      const title = document.querySelector('.tgme_channel_info_header_title')?.textContent?.trim() ||
-                   document.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
-                   'Unknown Channel';
-
-      const description = document.querySelector('.tgme_channel_info_description')?.textContent?.trim() ||
-                         document.querySelector('meta[property="og:description"]')?.getAttribute('content');
-
-      const username = url.split('/').pop() || '';
-
-      // Try to extract subscriber count
-      let subscribers: number | undefined;
-      const subscriberText = document.querySelector('.tgme_channel_info_counter')?.textContent;
-      if (subscriberText) {
-        const match = subscriberText.match(/(\d+(?:\.\d+)?)\s*([KMB]?)/i);
-        if (match) {
-          const [, num, suffix] = match;
-          const multipliers: { [key: string]: number } = { K: 1000, M: 1000000, B: 1000000000 };
-          subscribers = Math.floor(parseFloat(num) * (multipliers[suffix.toUpperCase()] || 1));
-        }
-      }
-
-      const photoUrl = document.querySelector('.tgme_channel_info_header_photo img')?.getAttribute('src');
-
-      return {
-        username,
-        title,
-        description: description || undefined,
-        subscribers,
-        photo_url: photoUrl || undefined
-      };
-
-    } catch (error) {
-      logger.error('Failed to parse channel info', error);
-      return null;
-    }
-  }
-
-  /**
-   * Scrape messages from a specific page/offset
-   */
-  private async scrapeMessagesPage(
-    channelUsername: string, 
-    channel: TelegramChannel,
-    offset: number = 0
-  ): Promise<TelegramMessage[]> {
-    try {
-      // Telegram uses different URLs for pagination
-      const pageUrl = offset > 0 
-        ? `${this.baseUrl}/${channelUsername}?before=${offset}`
-        : `${this.baseUrl}/${channelUsername}`;
-
-      const response = await fetch(pageUrl, {
-        headers: { 'User-Agent': this.userAgent },
-        timeout: envConfig.apiTimeouts.telegram
+        timeout: envConfig.apiTimeouts.rss
       });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const html = await response.text();
-      return this.parseMessages(html, channel);
-
-    } catch (error) {
-      logger.error(`Failed to scrape messages page for ${channelUsername}`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Parse messages from HTML
-   */
-  private parseMessages(html: string, channel: TelegramChannel): TelegramMessage[] {
-    try {
-      const dom = new JSDOM(html);
-      const document = dom.window.document;
-      
-      const messageElements = document.querySelectorAll('.tgme_widget_message');
-      const messages: TelegramMessage[] = [];
-
-      messageElements.forEach(element => {
-        try {
-          const message = this.parseMessage(element as any, channel);
-          if (message) {
-            messages.push(message);
-          }
-        } catch (error) {
-          logger.debug('Failed to parse individual message', error);
-          // Continue with other messages
-        }
-      });
-
-      return messages;
-
-    } catch (error) {
-      logger.error('Failed to parse messages from HTML', error);
-      return [];
-    }
-  }
-
-  /**
-   * Parse individual message element
-   */
-  private parseMessage(element: any, channel: TelegramChannel): TelegramMessage | null {
-    try {
-      // Extract message ID
-      const messageId = element.getAttribute('data-post')?.split('/')[1];
-      if (!messageId) return null;
-
-      // Extract text content
-      const textElement = element.querySelector('.tgme_widget_message_text');
-      const text = textElement?.textContent?.trim() || '';
-      
-      if (!text && !element.querySelector('.tgme_widget_message_photo, .tgme_widget_message_video')) {
-        return null; // Skip empty messages without media
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('xml') && !contentType.includes('rss')) {
+        logger.warn(`Unexpected content type for RSS feed: ${contentType}`);
       }
 
-      // Extract timestamp
-      const timeElement = element.querySelector('.tgme_widget_message_date time');
-      const datetime = timeElement?.getAttribute('datetime');
-      const messageDate = datetime ? new Date(datetime).toISOString() : new Date().toISOString();
+      return await response.text();
 
-      // Extract author (if available)
-      const authorElement = element.querySelector('.tgme_widget_message_from_author');
-      const author = authorElement?.textContent?.trim();
+    } catch (error: any) {
+      logger.error(`Failed to fetch RSS feed: ${feedUrl}`, error);
+      throw new Error(`Could not fetch RSS feed: ${error.message}`);
+    }
+  }
 
-      // Extract engagement metrics
-      const views = this.extractNumber(element.querySelector('.tgme_widget_message_views')?.textContent) || 0;
-      const forwards = this.extractNumber(element.querySelector('.tgme_widget_message_forwards')?.textContent) || 0;
-      const replies = this.extractNumber(element.querySelector('.tgme_widget_message_replies')?.textContent) || 0;
+  /**
+   * Parse RSS XML into structured data
+   */
+  private parseRSSXML(xmlContent: string): any {
+    try {
+      const parsed = this.xmlParser.parse(xmlContent);
+      
+      // Handle different RSS formats (RSS 2.0, Atom, etc.)
+      if (parsed.rss && parsed.rss.channel) {
+        return parsed.rss.channel; // RSS 2.0
+      } else if (parsed.feed) {
+        return this.convertAtomToRSS(parsed.feed); // Atom feed
+      } else if (parsed.channel) {
+        return parsed.channel; // RSS 1.0
+      } else {
+        throw new Error('Unrecognized RSS/XML format');
+      }
 
-      // Check for media
-      const hasMedia = !!(
-        element.querySelector('.tgme_widget_message_photo') ||
-        element.querySelector('.tgme_widget_message_video') ||
-        element.querySelector('.tgme_widget_message_document')
-      );
+    } catch (error: any) {
+      logger.error('Failed to parse RSS XML', error);
+      throw new Error(`XML parsing failed: ${error.message}`);
+    }
+  }
 
-      // Extract media description
-      const mediaDescription = element.querySelector('.tgme_widget_message_photo_caption, .tgme_widget_message_video_caption')?.textContent?.trim();
+  /**
+   * Convert Atom feed to RSS-like structure
+   */
+  private convertAtomToRSS(atomFeed: any): any {
+    const entries = Array.isArray(atomFeed.entry) ? atomFeed.entry : [atomFeed.entry].filter(Boolean);
+    
+    return {
+      title: atomFeed.title?.['#text'] || atomFeed.title,
+      description: atomFeed.subtitle?.['#text'] || atomFeed.subtitle,
+      link: atomFeed.link?.['@_href'] || atomFeed.link,
+      item: entries.map((entry: any) => ({
+        title: entry.title?.['#text'] || entry.title,
+        link: entry.link?.['@_href'] || entry.link,
+        description: entry.summary?.['#text'] || entry.summary,
+        content: entry.content?.['#text'] || entry.content,
+        pubDate: entry.published || entry.updated,
+        author: entry.author?.name || entry.author,
+        category: entry.category
+      }))
+    };
+  }
 
-      // Extract links
-      const linkElements = element.querySelectorAll('a[href]');
-      const links: string[] = [];
-      linkElements.forEach((link: any) => {
-        const href = link.getAttribute('href');
-        if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
-          links.push(href);
-        }
-      });
+  /**
+   * Extract feed metadata
+   */
+  private extractFeedInfo(parsedFeed: any, feedUrl: string): RSSFeed {
+    return {
+      url: feedUrl,
+      title: parsedFeed.title || 'Unknown Feed',
+      description: parsedFeed.description,
+      link: parsedFeed.link,
+      language: parsedFeed.language,
+      last_build_date: parsedFeed.lastBuildDate || parsedFeed.pubDate,
+      image_url: parsedFeed.image?.url || parsedFeed.image?.['@_href'],
+      category: Array.isArray(parsedFeed.category) 
+        ? parsedFeed.category 
+        : parsedFeed.category ? [parsedFeed.category] : []
+    };
+  }
 
-      // Generate source URL
-      const sourceUrl = `${this.baseUrl}/${channel.username}/${messageId}`;
-
+  /**
+   * Extract raw articles from parsed feed
+   */
+  private extractRawArticles(parsedFeed: any, feedInfo: RSSFeed): RSSArticle[] {
+    const items = Array.isArray(parsedFeed.item) ? parsedFeed.item : [parsedFeed.item].filter(Boolean);
+    
+    return items.map((item: any) => {
+      const link = item.link?.['#text'] || item.link || '';
+      const id = this.generateArticleId(link, item.title);
+      
       return {
-        id: `${channel.username}_${messageId}`,
-        message_id: messageId,
-        channel_username: channel.username,
-        channel_title: channel.title,
-        text: text + (mediaDescription ? `\n\n[Media: ${mediaDescription}]` : ''),
-        author,
-        message_date: messageDate,
-        views,
-        forwards,
-        replies,
-        has_media: hasMedia,
-        media_description: mediaDescription,
-        links,
-        quality_score: 0, // Will be calculated in enhanceMessage
-        source_url: sourceUrl,
-        raw_html: element.outerHTML,
+        id,
+        title: item.title || 'Untitled',
+        link,
+        description: item.description?.replace(/<[^>]*>/g, '').trim(), // Strip HTML
+        content: item.content || item['content:encoded'], // Full content if available
+        author: item.author || item['dc:creator'],
+        published_at: this.parseDate(item.pubDate || item.published),
+        
+        feed_url: feedInfo.url,
+        feed_title: feedInfo.title,
+        
+        word_count: 0, // Will be calculated
+        quality_score: 0, // Will be calculated
+        categories: this.extractCategories(item),
+        
+        content_extracted: !!item.content,
+        extraction_method: item.content ? 'rss' : 'none',
+        raw_data: item,
         fetched_at: new Date().toISOString()
       };
+    });
+  }
 
-    } catch (error) {
-      logger.debug('Failed to parse message element', error);
-      return null;
+  /**
+   * Generate unique ID for article
+   */
+  private generateArticleId(link: string, title: string): string {
+    const source = link || title || Math.random().toString();
+    return crypto.createHash('md5').update(source).digest('hex');
+  }
+
+  /**
+   * Parse date from various RSS date formats
+   */
+  private parseDate(dateStr: string | undefined): string | undefined {
+    if (!dateStr) return undefined;
+    
+    try {
+      const date = new Date(dateStr);
+      return isNaN(date.getTime()) ? undefined : date.toISOString();
+    } catch {
+      return undefined;
     }
   }
 
   /**
-   * Extract numeric value from text (handles K, M, B suffixes)
+   * Extract categories/tags from RSS item
    */
-  private extractNumber(text: string | null | undefined): number {
-    if (!text) return 0;
+  private extractCategories(item: any): string[] {
+    const categories: string[] = [];
     
-    const match = text.match(/(\d+(?:\.\d+)?)\s*([KMB]?)/i);
-    if (!match) return 0;
-
-    const [, num, suffix] = match;
-    const multipliers: { [key: string]: number } = { K: 1000, M: 1000000, B: 1000000000 };
-    return Math.floor(parseFloat(num) * (multipliers[suffix.toUpperCase()] || 1));
+    if (item.category) {
+      if (Array.isArray(item.category)) {
+        categories.push(...item.category.map((cat: any) => cat['#text'] || cat).filter(Boolean));
+      } else {
+        const cat = item.category['#text'] || item.category;
+        if (cat) categories.push(cat);
+      }
+    }
+    
+    // Also check for tags
+    if (item.tag) {
+      if (Array.isArray(item.tag)) {
+        categories.push(...item.tag);
+      } else {
+        categories.push(item.tag);
+      }
+    }
+    
+    return Array.from(new Set(categories)); // Remove duplicates
   }
 
   /**
-   * Filter messages based on options
+   * Filter articles based on options
    */
-  private filterMessages(messages: TelegramMessage[], options: ScrapingOptions): TelegramMessage[] {
-    return messages.filter(message => {
-      const messageDate = new Date(message.message_date);
-
-      // Date filters
-      if (options.beforeDate && messageDate > options.beforeDate) return false;
-      if (options.afterDate && messageDate < options.afterDate) return false;
-
+  private filterArticles(articles: RSSArticle[], options: RSSParseOptions): RSSArticle[] {
+    return articles.filter(article => {
+      // Date filter
+      if (options.sinceDate && article.published_at) {
+        const articleDate = new Date(article.published_at);
+        if (articleDate < options.sinceDate) return false;
+      }
+      
+      // Must have title and link
+      if (!article.title.trim() || !article.link) return false;
+      
       return true;
     });
   }
 
   /**
-   * Enhance message with quality scoring
+   * Extract full content from article URLs
    */
-  private enhanceMessage(message: TelegramMessage): TelegramMessage {
-    const qualityScore = this.calculateQualityScore(message);
-    return { ...message, quality_score: qualityScore };
+  private async extractFullContent(articles: RSSArticle[], errors: string[]): Promise<void> {
+    const extractionPromises = articles
+      .filter(article => !article.content_extracted && article.link)
+      .map(article => this.extractSingleArticle(article, errors));
+
+    await Promise.allSettled(extractionPromises);
   }
 
   /**
-   * Calculate quality score for a message
+   * Extract content from a single article URL
    */
-  private calculateQualityScore(message: TelegramMessage): number {
+  private async extractSingleArticle(article: RSSArticle, errors: string[]): Promise<void> {
+    try {
+      const response = await fetch(article.link, {
+        headers: { 'User-Agent': this.userAgent },
+        timeout: 10000 // 10 second timeout per article
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+      const content = this.extractContentFromHTML(html);
+      
+      if (content && content.length > 200) {
+        article.content = content;
+        article.content_extracted = true;
+        article.extraction_method = 'web_scraping';
+      }
+
+      // Add small delay to be respectful
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+    } catch (error: any) {
+      errors.push(`Failed to extract content from ${article.link}: ${error.message}`);
+      logger.debug(`Content extraction failed for ${article.link}`, error);
+    }
+  }
+
+  /**
+   * Extract main content from HTML using simple heuristics
+   */
+  private extractContentFromHTML(html: string): string | null {
+    try {
+      const dom = new JSDOM(html);
+      const document = dom.window.document;
+
+      // Remove script and style elements
+      document.querySelectorAll('script, style, nav, header, footer, aside').forEach(el => el.remove());
+
+      // Common content selectors (in order of preference)
+      const contentSelectors = [
+        'article',
+        '[role="main"]',
+        '.post-content',
+        '.entry-content',
+        '.article-content',
+        '.content',
+        'main',
+        '.post-body'
+      ];
+
+      for (const selector of contentSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          const text = element.textContent?.trim();
+          if (text && text.length > 200) {
+            return text;
+          }
+        }
+      }
+
+      // Fallback: look for the largest text block
+      const paragraphs = Array.from(document.querySelectorAll('p'));
+      const textBlocks = paragraphs
+        .map(p => p.textContent?.trim() || '')
+        .filter(text => text.length > 50);
+
+      if (textBlocks.length > 0) {
+        return textBlocks.join('\n\n');
+      }
+
+      return null;
+
+    } catch (error) {
+      logger.debug('HTML content extraction failed', error);
+      return null;
+    }
+  }
+
+  /**
+   * Enhance article with computed fields
+   */
+  private enhanceArticle(article: RSSArticle, config: any): RSSArticle {
+    // Calculate word count
+    const content = article.content || article.description || '';
+    article.word_count = content.split(/\s+/).length;
+
+    // Trim content if too long
+    if (article.content && article.content.length > config.maxArticleLength) {
+      article.content = article.content.substring(0, config.maxArticleLength) + '...';
+    }
+
+    // Calculate quality score
+    article.quality_score = this.calculateQualityScore(article);
+
+    return article;
+  }
+
+  /**
+   * Calculate quality score for article
+   */
+  private calculateQualityScore(article: RSSArticle): number {
     let score = 0.5; // Base score
 
-    // Text quality indicators
-    const text = message.text.toLowerCase();
-    const wordCount = text.split(/\s+/).length;
+    // Content availability
+    if (article.content_extracted && article.content) score += 0.2;
+    if (article.description && article.description.length > 100) score += 0.1;
 
-    // Length indicators
-    if (wordCount >= 10) score += 0.1; // Substantial content
-    if (wordCount >= 50) score += 0.1; // Long-form content
-    if (wordCount > 200) score -= 0.1; // Too long might be spam
+    // Metadata completeness
+    if (article.author) score += 0.1;
+    if (article.published_at) score += 0.1;
+    if (article.categories.length > 0) score += 0.1;
 
     // Content quality indicators
-    if (message.links.length > 0 && message.links.length <= 3) score += 0.1; // Has relevant links
-    if (message.has_media && message.media_description) score += 0.1; // Quality media
-    if (text.includes('?')) score += 0.05; // Questions engage
-    if (/\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/.test(text)) score += 0.05; // Contains dates (news-like)
+    if (article.word_count > 300) score += 0.1;
+    if (article.word_count > 1000) score += 0.1;
+    if (article.word_count < 100) score -= 0.2;
 
-    // Engagement indicators
-    const totalEngagement = message.views + (message.forwards * 10) + (message.replies * 5);
-    if (totalEngagement > 100) score += 0.1;
-    if (totalEngagement > 1000) score += 0.1;
-    if (totalEngagement > 10000) score += 0.1;
+    // Title quality
+    const title = article.title.toLowerCase();
+    if (title.includes('?')) score += 0.05; // Questions are engaging
+    if (title.length > 50 && title.length < 100) score += 0.05; // Good length
+    if (title.includes('breaking') || title.includes('exclusive')) score += 0.05;
 
     // Negative indicators
-    if (text.includes('subscribe') && text.includes('channel')) score -= 0.2; // Promotional
-    if ((text.match(/[@#]\w+/g)?.length || 0) > 5) score -= 0.1; // Tag spam
-    if (message.links.length > 5) score -= 0.2; // Link spam
+    if (title.includes('advertisement') || title.includes('sponsored')) score -= 0.3;
+    if (article.link.includes('ads.') || article.link.includes('promo.')) score -= 0.2;
 
-    return Math.max(0, Math.min(1, score)); // Clamp between 0 and 1
+    return Math.max(0, Math.min(1, score));
   }
 
   /**
-   * Check if message passes quality filters
+   * Check if article passes quality filters
    */
-  private passesQualityFilter(message: TelegramMessage, config: any): boolean {
-    // Length filter
-    if (message.text.length < config.minMessageLength) {
-      return false;
-    }
-
+  private passesQualityFilter(article: RSSArticle, config: any): boolean {
+    // Length filters
+    if (article.word_count < config.minArticleLength / 5) return false; // Rough word estimate
+    
     // Quality filter
-    if (message.quality_score < 0.3) {
-      return false;
-    }
+    if (article.quality_score < 0.4) return false;
+
+    // Must have meaningful content
+    if (!article.title.trim()) return false;
 
     return true;
   }
 
   /**
-   * Rate limiting
+   * Get display name for feed URL
    */
-  private async respectRateLimit(): Promise<void> {
-    await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
+  private getFeedDisplayName(feedUrl: string): string {
+    try {
+      const url = new URL(feedUrl);
+      return url.hostname.replace('www.', '');
+    } catch {
+      return feedUrl;
+    }
   }
 
   /**
-   * Test connection to Telegram
+   * Test RSS feed accessibility
    */
-  async testConnection(): Promise<boolean> {
+  async testFeed(feedUrl: string): Promise<boolean> {
     try {
-      const response = await fetch('https://t.me/telegram', {
-        headers: { 'User-Agent': this.userAgent },
-        timeout: 10000
-      });
-      return response.ok;
+      const xmlContent = await this.fetchFeedXML(feedUrl);
+      this.parseRSSXML(xmlContent);
+      return true;
     } catch (error) {
-      logger.error('Telegram connection test failed', error);
+      logger.error(`RSS feed test failed for ${feedUrl}`, error);
       return false;
     }
   }
 }
 ```
 
-## 💾 Telegram Caching System
+## 💾 RSS Caching System
 
-Let's create a caching layer for Telegram data:
+Let's create a caching layer for RSS articles:
 
 ```typescript
-// lib/telegram/telegram-cache.ts
+// lib/rss/rss-cache.ts
 
 import { supabase } from '../supabase/supabase-client';
-import { TelegramMessage } from '../../types/telegram';
-import { getTelegramChannelConfig } from '../../config/data-sources-config';
+import { RSSArticle } from '../../types/rss';
+import { getRssFeedConfig } from '../../config/data-sources-config';
 import logger from '../logger';
 
-export class TelegramCache {
+export class RSSCache {
   
   /**
-   * Check if we have fresh cached data for a channel
+   * Check if we have fresh cached articles for a feed
    */
-  async isCacheFresh(channelUsername: string): Promise<boolean> {
-    const config = getTelegramChannelConfig(channelUsername);
+  async isCacheFresh(feedUrl: string): Promise<boolean> {
+    const config = getRssFeedConfig(feedUrl);
     const cacheThresholdMs = config.cacheHours * 60 * 60 * 1000;
     const cutoffTime = new Date(Date.now() - cacheThresholdMs).toISOString();
 
     const { data, error } = await supabase
-      .from('telegram_messages')
+      .from('rss_articles')
       .select('fetched_at')
-      .eq('channel_username', channelUsername)
+      .eq('feed_url', feedUrl)
       .gte('fetched_at', cutoffTime)
       .limit(1);
 
     if (error) {
-      logger.error(`Cache check failed for t.me/${channelUsername}`, error);
+      logger.error(`RSS cache check failed for ${feedUrl}`, error);
       return false;
     }
 
     const isFresh = (data?.length || 0) > 0;
-    logger.info(`Cache check for t.me/${channelUsername}: ${isFresh ? 'fresh' : 'stale'}`);
+    logger.info(`RSS cache check for ${feedUrl}: ${isFresh ? 'fresh' : 'stale'}`);
     
     return isFresh;
   }
 
   /**
-   * Get cached messages for a channel
+   * Get cached articles for a feed
    */
-  async getCachedMessages(channelUsername: string): Promise<TelegramMessage[]> {
-    const config = getTelegramChannelConfig(channelUsername);
+  async getCachedArticles(feedUrl: string): Promise<RSSArticle[]> {
+    const config = getRssFeedConfig(feedUrl);
     const cacheThresholdMs = config.cacheHours * 60 * 60 * 1000;
     const cutoffTime = new Date(Date.now() - cacheThresholdMs).toISOString();
 
     const { data, error } = await supabase
-      .from('telegram_messages')
+      .from('rss_articles')
       .select('*')
-      .eq('channel_username', channelUsername)
+      .eq('feed_url', feedUrl)
       .gte('fetched_at', cutoffTime)
-      .order('message_date', { ascending: false })
-      .limit(config.messagesPerChannel);
+      .order('published_at', { ascending: false })
+      .limit(config.articlesPerFeed);
 
     if (error) {
-      logger.error(`Failed to retrieve cached messages for t.me/${channelUsername}`, error);
+      logger.error(`Failed to retrieve cached RSS articles for ${feedUrl}`, error);
       return [];
     }
 
-    logger.info(`Retrieved ${data?.length || 0} cached messages for t.me/${channelUsername}`);
+    logger.info(`Retrieved ${data?.length || 0} cached RSS articles for ${feedUrl}`);
     
-    // Convert database format back to TelegramMessage format
-    return (data || []).map(this.dbToTelegramMessage);
+    return (data || []).map(this.dbToRSSArticle);
   }
 
   /**
-   * Store messages in cache
+   * Store articles in cache
    */
-  async storeMessages(messages: TelegramMessage[]): Promise<void> {
-    if (messages.length === 0) return;
+  async storeArticles(articles: RSSArticle[]): Promise<void> {
+    if (articles.length === 0) return;
 
     // Prepare data for database
-    const dbMessages = messages.map(message => ({
-      id: message.id,
-      message_id: message.message_id,
-      channel_username: message.channel_username,
-      channel_title: message.channel_title,
-      text: message.text,
-      author: message.author,
-      message_date: message.message_date,
-      views: message.views,
-      forwards: message.forwards,
-      replies: message.replies,
-      quality_score: message.quality_score,
-      source_url: message.source_url,
+    const dbArticles = articles.map(article => ({
+      id: article.id,
+      title: article.title,
+      link: article.link,
+      description: article.description,
+      content: article.content,
+      author: article.author,
+      published_at: article.published_at,
+      feed_url: article.feed_url,
+      feed_title: article.feed_title,
+      quality_score: article.quality_score,
+      word_count: article.word_count,
       raw_data: {
-        has_media: message.has_media,
-        media_description: message.media_description,
-        links: message.links,
-        raw_html: message.raw_html
+        categories: article.categories,
+        content_extracted: article.content_extracted,
+        extraction_method: article.extraction_method,
+        raw_data: article.raw_data
       },
-      fetched_at: message.fetched_at,
+      fetched_at: article.fetched_at,
     }));
 
     // Use upsert to handle duplicates
     const { error } = await supabase
-      .from('telegram_messages')
-      .upsert(dbMessages, { onConflict: 'message_id,channel_username' });
+      .from('rss_articles')
+      .upsert(dbArticles, { onConflict: 'link' });
 
     if (error) {
-      logger.error('Failed to store Telegram messages in cache', error);
+      logger.error('Failed to store RSS articles in cache', error);
       throw error;
     }
 
-    logger.info(`Stored ${messages.length} Telegram messages in cache`);
+    logger.info(`Stored ${articles.length} RSS articles in cache`);
   }
 
   /**
-   * Convert database row back to TelegramMessage
+   * Convert database row back to RSSArticle
    */
-  private dbToTelegramMessage(dbRow: any): TelegramMessage {
+  private dbToRSSArticle(dbRow: any): RSSArticle {
     return {
       id: dbRow.id,
-      message_id: dbRow.message_id,
-      channel_username: dbRow.channel_username,
-      channel_title: dbRow.channel_title,
-      text: dbRow.text,
+      title: dbRow.title,
+      link: dbRow.link,
+      description: dbRow.description,
+      content: dbRow.content,
       author: dbRow.author,
-      message_date: dbRow.message_date,
-      views: dbRow.views,
-      forwards: dbRow.forwards,
-      replies: dbRow.replies,
-      has_media: dbRow.raw_data?.has_media || false,
-      media_description: dbRow.raw_data?.media_description,
-      links: dbRow.raw_data?.links || [],
+      published_at: dbRow.published_at,
+      feed_url: dbRow.feed_url,
+      feed_title: dbRow.feed_title,
+      word_count: dbRow.word_count,
       quality_score: dbRow.quality_score,
-      source_url: dbRow.source_url,
-      raw_html: dbRow.raw_data?.raw_html,
+      categories: dbRow.raw_data?.categories || [],
+      content_extracted: dbRow.raw_data?.content_extracted || false,
+      extraction_method: dbRow.raw_data?.extraction_method,
+      raw_data: dbRow.raw_data?.raw_data,
       fetched_at: dbRow.fetched_at,
     };
   }
@@ -669,152 +708,202 @@ export class TelegramCache {
   /**
    * Clean old cache entries
    */
-  async cleanOldCache(olderThanDays: number = 7): Promise<void> {
+  async cleanOldCache(olderThanDays: number = 30): Promise<void> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
     const { error } = await supabase
-      .from('telegram_messages')
+      .from('rss_articles')
       .delete()
       .lt('fetched_at', cutoffDate.toISOString());
 
     if (error) {
-      logger.error('Failed to clean old Telegram cache entries', error);
+      logger.error('Failed to clean old RSS cache entries', error);
     } else {
-      logger.info(`Cleaned Telegram cache entries older than ${olderThanDays} days`);
+      logger.info(`Cleaned RSS cache entries older than ${olderThanDays} days`);
     }
   }
 }
 ```
 
-## 🧪 Testing Your Telegram Scraper
+## 📰 Popular RSS Feeds to Start With
+
+Here's a curated list of high-quality RSS feeds:
+
+```typescript
+// config/rss-feeds.ts
+
+export const popularFeeds = {
+  // Tech & AI
+  tech: [
+    'https://techcrunch.com/feed/',
+    'https://www.theverge.com/rss/index.xml',
+    'https://arstechnica.com/feeds/rss/',
+    'https://www.wired.com/feed/rss',
+    'https://feeds.feedburner.com/venturebeat/SZYF', // VentureBeat AI
+  ],
+
+  // Finance & Crypto
+  finance: [
+    'https://www.coindesk.com/arc/outboundfeeds/rss/',
+    'https://cointelegraph.com/rss',
+    'https://www.bloomberg.com/feeds/markets.rss',
+    'https://feeds.a16z.com/a16z.rss', // Andreessen Horowitz
+  ],
+
+  // News & Analysis
+  news: [
+    'https://feeds.reuters.com/reuters/technologyNews',
+    'https://rss.cnn.com/rss/edition.rss',
+    'https://feeds.bbci.co.uk/news/technology/rss.xml',
+    'https://www.ft.com/technology?format=rss',
+  ],
+
+  // Research & Academic
+  research: [
+    'https://arxiv.org/rss/cs.AI', // AI Research
+    'https://arxiv.org/rss/cs.LG', // Machine Learning
+    'https://feeds.feedburner.com/oreilly/ideas', // O'Reilly Ideas
+  ],
+
+  // Blogs & Analysis
+  blogs: [
+    'https://stratechery.com/feed/',
+    'https://blog.openai.com/rss/',
+    'https://ai.googleblog.com/feeds/posts/default',
+    'https://blog.anthropic.com/rss.xml',
+  ]
+};
+
+// Feed configuration with custom settings
+export const feedConfigs = {
+  'https://techcrunch.com/feed/': {
+    articlesPerFeed: 10, // High volume
+    extractFullContent: true
+  },
+  'https://arxiv.org/rss/cs.AI': {
+    cacheHours: 12, // Academic content updates less frequently
+    minArticleLength: 500 // Research abstracts are longer
+  },
+  'https://stratechery.com/feed/': {
+    articlesPerFeed: 5, // Quality over quantity
+    extractFullContent: true // Long-form analysis
+  }
+};
+```
+
+## 🧪 Testing Your RSS System
 
 Let's create a comprehensive test:
 
 ```typescript
-// scripts/test/test-telegram.ts
+// scripts/test/test-rss.ts
 
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { TelegramScraper } from '../../lib/telegram/telegram-scraper';
-import { TelegramCache } from '../../lib/telegram/telegram-cache';
+import { RSSProcessor } from '../../lib/rss/rss-processor';
+import { RSSCache } from '../../lib/rss/rss-cache';
+import { popularFeeds } from '../../config/rss-feeds';
 import logger from '../../lib/logger';
 
-async function testTelegramScraping() {
-  console.log('📱 Testing Telegram Scraping...\n');
+async function testRSSProcessing() {
+  console.log('📰 Testing RSS Processing...\n');
 
   try {
-    // Test 1: Connection
-    console.log('1. Testing Connection:');
-    const scraper = new TelegramScraper();
-    const connected = await scraper.testConnection();
+    // Test 1: Connection and basic parsing
+    console.log('1. Testing RSS Feed Access:');
+    const processor = new RSSProcessor();
     
-    if (!connected) {
-      throw new Error('Cannot connect to Telegram');
+    // Use a reliable RSS feed
+    const testFeedUrl = popularFeeds.tech[0]; // TechCrunch
+    const canAccess = await processor.testFeed(testFeedUrl);
+    
+    if (!canAccess) {
+      throw new Error(`Cannot access RSS feed: ${testFeedUrl}`);
     }
-    console.log('✅ Telegram connection successful');
+    console.log(`✅ RSS feed accessible: ${testFeedUrl}`);
 
-    // Test 2: Scrape a reliable public channel
-    console.log('\n2. Testing Channel Scraping:');
-    
-    // Use a well-known public channel that always has content
-    const testChannel = 'telegram'; // Official Telegram channel
-    
-    const result = await scraper.scrapeChannel(testChannel, { maxMessages: 5 });
-    
-    console.log(`✅ Scraped ${result.messages.length} messages from t.me/${testChannel}`);
-    console.log(`   Channel: ${result.channel.title}`);
-    console.log(`   Subscribers: ${result.channel.subscribers?.toLocaleString() || 'Unknown'}`);
+    // Test 2: Process feed and extract articles
+    console.log('\n2. Testing Article Processing:');
+    const result = await processor.processFeed(testFeedUrl, {
+      maxArticles: 5,
+      extractFullContent: true
+    });
 
-    if (result.messages.length > 0) {
-      const sampleMessage = result.messages[0];
-      console.log(`   Sample message: "${sampleMessage.text.substring(0, 100)}..."`);
-      console.log(`   Views: ${sampleMessage.views.toLocaleString()}`);
-      console.log(`   Quality score: ${sampleMessage.quality_score.toFixed(2)}`);
+    console.log(`✅ Processed ${result.articles.length} articles from ${result.feed.title}`);
+    console.log(`   Total processed: ${result.total_processed}`);
+    console.log(`   Successful content extractions: ${result.successful_extractions}`);
+    console.log(`   Errors: ${result.errors.length}`);
+
+    if (result.articles.length > 0) {
+      const sampleArticle = result.articles[0];
+      console.log(`   Sample article: "${sampleArticle.title}"`);
+      console.log(`   Author: ${sampleArticle.author || 'Unknown'}`);
+      console.log(`   Word count: ${sampleArticle.word_count}`);
+      console.log(`   Quality score: ${sampleArticle.quality_score.toFixed(2)}`);
+      console.log(`   Full content extracted: ${sampleArticle.content_extracted}`);
+      console.log(`   Categories: ${sampleArticle.categories.join(', ') || 'None'}`);
     }
 
     // Test 3: Caching
     console.log('\n3. Testing Caching System:');
-    const cache = new TelegramCache();
+    const cache = new RSSCache();
     
-    await cache.storeMessages(result.messages);
-    console.log('✅ Messages stored in cache');
+    await cache.storeArticles(result.articles);
+    console.log('✅ Articles stored in cache');
     
-    const cachedMessages = await cache.getCachedMessages(testChannel);
-    console.log(`✅ Retrieved ${cachedMessages.length} messages from cache`);
+    const cachedArticles = await cache.getCachedArticles(testFeedUrl);
+    console.log(`✅ Retrieved ${cachedArticles.length} articles from cache`);
     
-    const isFresh = await cache.isCacheFresh(testChannel);
+    const isFresh = await cache.isCacheFresh(testFeedUrl);
     console.log(`✅ Cache freshness check: ${isFresh ? 'Fresh' : 'Stale'}`);
 
-    // Test 4: Quality filtering
-    console.log('\n4. Testing Quality Filtering:');
-    const highQualityMessages = result.messages.filter(msg => msg.quality_score > 0.6);
-    const mediumQualityMessages = result.messages.filter(msg => msg.quality_score > 0.4 && msg.quality_score <= 0.6);
-    const lowQualityMessages = result.messages.filter(msg => msg.quality_score <= 0.4);
+    // Test 4: Multiple feeds
+    console.log('\n4. Testing Multiple Feed Processing:');
+    const testFeeds = popularFeeds.tech.slice(0, 3); // Test 3 feeds
     
-    console.log(`✅ Quality distribution:`);
-    console.log(`   High quality (>0.6): ${highQualityMessages.length} messages`);
-    console.log(`   Medium quality (0.4-0.6): ${mediumQualityMessages.length} messages`);
-    console.log(`   Low quality (≤0.4): ${lowQualityMessages.length} messages`);
+    for (const feedUrl of testFeeds) {
+      try {
+        const feedResult = await processor.processFeed(feedUrl, { 
+          maxArticles: 2,
+          extractFullContent: false // Faster for testing
+        });
+        console.log(`✅ ${feedResult.feed.title}: ${feedResult.articles.length} articles`);
+      } catch (error: any) {
+        console.log(`❌ Failed to process ${feedUrl}: ${error.message}`);
+      }
+    }
 
-    console.log('\n🎉 Telegram scraping test completed successfully!');
-    console.log('💰 Cost: $0.00 (completely free!)');
+    // Test 5: Quality analysis
+    console.log('\n5. Testing Quality Analysis:');
+    const allArticles = result.articles;
+    const highQuality = allArticles.filter(a => a.quality_score > 0.7);
+    const mediumQuality = allArticles.filter(a => a.quality_score > 0.5 && a.quality_score <= 0.7);
+    const lowQuality = allArticles.filter(a => a.quality_score <= 0.5);
+
+    console.log(`✅ Quality distribution:`);
+    console.log(`   High quality (>0.7): ${highQuality.length} articles`);
+    console.log(`   Medium quality (0.5-0.7): ${mediumQuality.length} articles`);
+    console.log(`   Low quality (≤0.5): ${lowQuality.length} articles`);
+
+    console.log('\n🎉 RSS processing test completed successfully!');
+    console.log('💰 Cost: $0.00 (RSS feeds are free!)');
 
   } catch (error: any) {
-    logger.error('Telegram scraping test failed', error);
+    logger.error('RSS processing test failed', error);
     console.error('\n❌ Test failed:', error.message);
     
-    if (error.message.includes('not found')) {
-      console.log('\n💡 The test channel might be private or renamed');
-      console.log('   Try testing with a different public channel like "durov" or "telegram"');
+    if (error.message.includes('timeout')) {
+      console.log('\n💡 Some RSS feeds may be slow to respond');
+      console.log('   Try increasing the timeout in config/environment.ts');
     }
     
     process.exit(1);
   }
 }
 
-testTelegramScraping();
-```
-
-## 📝 Popular Telegram Channels to Start With
-
-Here are some great public channels for testing (all completely free):
-
-```typescript
-// config/telegram-channels.ts
-
-export const popularChannels = {
-  // Crypto & Finance
-  crypto: [
-    'whalealert',           // Whale Alert - Large crypto transactions
-    'bitcoinmagazine',      // Bitcoin Magazine
-    'coindesk',            // CoinDesk News
-    'cryptoquant_com',     // CryptoQuant Analytics
-  ],
-  
-  // Tech & AI
-  tech: [
-    'openai_news',         // OpenAI Updates
-    'techcrunch',          // TechCrunch
-    'hackernews',          // Hacker News
-    'artificial_intel',    // AI News
-  ],
-  
-  // News & General
-  news: [
-    'bbcnews',            // BBC News
-    'cnnnews',            // CNN News
-    'reuters',            // Reuters
-    'apnews',             // Associated Press
-  ],
-  
-  // Test channels (always active)
-  test: [
-    'telegram',           // Official Telegram
-    'durov',             // Pavel Durov (Telegram founder)
-  ]
-};
+testRSSProcessing();
 ```
 
 
@@ -822,60 +911,76 @@ export const popularChannels = {
 ```json
 {
   "scripts": {
-    "test:telegram": "npm run script scripts/test/test-telegram.ts"
+    "test:rss": "npm run script scripts/test/test-rss.ts"
   }
 }
 ```
 
-**Test your integration:**
+**Test your RSS system:**
 ```bash
-npm run test:telegram
+npm run test:rss
 ```
 
 ## 🎯 What We've Accomplished
 
-You now have a powerful, completely free Telegram scraping system:
+You now have a comprehensive RSS processing system that:
 
-✅ **Web scraping without APIs** - No tokens or authentication needed  
-✅ **Rich content extraction** - Text, media, engagement metrics  
-✅ **Intelligent quality scoring** - Filter noise, keep valuable content  
-✅ **Robust error handling** - Graceful failures and retries  
-✅ **Smart caching system** - Avoid redundant scraping  
-✅ **Rate limiting** - Respectful scraping that won't get blocked  
+✅ **Handles multiple RSS formats** (RSS 2.0, Atom, RSS 1.0)  
+✅ **Extracts full article content** via web scraping  
+✅ **Provides intelligent quality scoring** based on multiple factors  
+✅ **Implements smart caching** to avoid redundant processing  
+✅ **Filters and processes content** for AI consumption  
+✅ **Handles errors gracefully** with detailed logging  
+
+### 📊 The Complete Data Collection Suite
+
+With this chapter complete, you now have **three complementary data sources**:
+
+1. **Twitter/X** - Real-time social sentiment and trending topics
+2. **Telegram** - Community insights and breaking news  
+3. **RSS Feeds** - Authoritative long-form content
+
+Each source provides different types of valuable data:
+- **Twitter**: Short-form, high-frequency, social sentiment
+- **Telegram**: Medium-form, community-driven, insider insights  
+- **RSS**: Long-form, authoritative, structured content
 
 ### 🔍 Pro Tips & Common Pitfalls
 
-**💡 Pro Tip:** Start with well-established channels that post regularly. They have consistent HTML structure and rich content.
+**💡 Pro Tip:** RSS feeds are perfect for training data. They're clean, structured, and often include full content.
 
-**⚠️ Common Pitfall:** Don't scrape too aggressively. Use delays between requests to avoid being rate-limited.
+**⚠️ Common Pitfall:** Not all RSS feeds include full content. Our system handles this by scraping the original articles when needed.
 
-**🔧 Performance Tip:** Cache aggressively. Telegram content doesn't change, so 5+ hour cache times are perfect.
-
-**⚖️ Legal Note:** Only scrape public channels. Private channels require permission and different techniques.
+**🔧 Performance Tip:** RSS feeds update infrequently (hours, not minutes). Use longer cache times (6+ hours) to reduce processing.
 
 ---
 
-### 📋 Complete Code Summary - Chapter 5
+### 📋 Complete Code Summary - Chapter 6
 
-**Core Telegram Scraper:**
+**Core RSS Processor:**
 ```typescript
-// lib/telegram/telegram-scraper.ts - Full web scraping implementation
-// lib/telegram/telegram-cache.ts - Intelligent caching system
+// lib/rss/rss-processor.ts - Full RSS processing with content extraction
+// lib/rss/rss-cache.ts - Intelligent caching system
 ```
 
-**Types and Configuration:**
+**Configuration:**
 ```typescript
-// types/telegram.ts - Telegram data structures
-// config/telegram-channels.ts - Popular channel lists
+// types/rss.ts - RSS data structures
+// config/rss-feeds.ts - Popular feed collections and custom configs
 ```
 
 **Testing:**
 ```typescript
-// scripts/test/test-telegram.ts - Comprehensive scraping test
+// scripts/test/test-rss.ts - Comprehensive RSS processing test
 ```
 
-**Next up:** In Chapter 6, we'll add RSS feed processing to complete our data collection trinity. RSS feeds are perfect for getting structured content from news sites, blogs, and research publications - also completely free!
+**🎉 Data Collection Complete!** You now have a robust system for collecting data from:
+- Social media (Twitter/X) 
+- Community channels (Telegram)
+- News and publications (RSS)
+
+**Next up:** Chapter 7 - AI Integration! This is where the magic happens. We'll connect to OpenAI and Anthropic APIs, build advanced prompts, and transform all this raw data into intelligent insights.
 
 ---
 
-*Ready to add the final piece of our data collection puzzle? Chapter 6 will show you how to parse RSS feeds and extract valuable long-form content that complements your social media data! 📰*
+*Ready to give your system a brain? Chapter 7 will show you how to integrate cutting-edge AI models to analyze and understand all the content we've been collecting! 🤖*
