@@ -1,193 +1,3 @@
-# Chapter 7: AI Integration - Giving Your System a Brain
-
-*"The question of whether a machine can think is no more interesting than the question of whether a submarine can swim." - Edsger W. Dijkstra*
-
----
-
-This is the moment we've been building toward! We've collected tweets, scraped Telegram channels, and parsed RSS feeds. Now it's time to transform that raw data soup into crystal-clear insights using the most powerful AI models available.
-
-In this chapter, we'll integrate **OpenAI GPT-4** and **Anthropic Claude** to analyze, summarize, and extract meaning from our content. You'll learn advanced prompt engineering, token optimization, and how to build AI systems that scale without breaking your budget.
-
-## 🧠 Why Multiple AI Models?
-
-**Different models, different strengths:**
-
-**OpenAI GPT-4:**
-- Excellent at creative tasks and reasoning
-- Great for structured output generation
-- Strong multilingual capabilities
-- Faster inference for simple tasks
-
-**Anthropic Claude:**
-- Superior for analysis and reasoning
-- Better at following complex instructions
-- More nuanced understanding of context
-- Excellent for long-form content
-
-**Our Strategy:** Use both models and let users choose based on their needs and budget.
-
-## 💰 AI Model Costs (Reality Check)
-
-**OpenAI Pricing (GPT-4):**
-- Input: $2.50 per 1M tokens
-- Output: $10.00 per 1M tokens
-- **Estimate**: ~$0.10-0.50 per digest (depending on content volume)
-
-**Anthropic Pricing (Claude-3.5-Sonnet):**
-- Input: $3.00 per 1M tokens  
-- Output: $15.00 per 1M tokens
-- **Estimate**: ~$0.15-0.75 per digest
-
-**💡 Cost Management Strategy:**
-- Smart prompt engineering to minimize tokens
-- Content filtering before AI processing
-- Batch processing for efficiency
-- Configurable model selection
-
-## 🎯 AI Data Types and Interfaces
-
-Let's define our AI integration types:
-
-```typescript
-// types/ai.ts
-
-export interface AIModelConfig {
-  provider: 'openai' | 'anthropic';
-  modelName: string;
-  options: {
-    temperature?: number;
-    max_tokens?: number;
-    top_p?: number;
-    reasoning_effort?: 'low' | 'medium' | 'high'; // OpenAI o1 models
-    thinking?: {  // Anthropic Claude thinking
-      type: 'enabled' | 'disabled';
-      budgetTokens?: number;
-    };
-  };
-}
-
-export interface TokenUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  reasoning_tokens?: number; // For OpenAI o1 models
-  cache_read_tokens?: number; // For Anthropic caching
-}
-
-export interface AIAnalysisRequest {
-  content: ContentForAnalysis;
-  analysisType: 'digest' | 'summary' | 'categorization' | 'sentiment';
-  instructions?: string;
-  outputFormat?: 'json' | 'markdown' | 'text';
-}
-
-export interface ContentForAnalysis {
-  tweets?: AnalysisTweet[];
-  telegram_messages?: AnalysisTelegramMessage[];
-  rss_articles?: AnalysisRSSArticle[];
-  timeframe: {
-    from: string;
-    to: string;
-  };
-  metadata: {
-    total_sources: number;
-    source_breakdown: {
-      twitter: number;
-      telegram: number;
-      rss: number;
-    };
-  };
-}
-
-export interface AnalysisTweet {
-  id: string;
-  text: string;
-  author: string;
-  created_at: string;
-  engagement_score: number;
-  quality_score: number;
-  url: string;
-}
-
-export interface AnalysisTelegramMessage {
-  id: string;
-  text: string;
-  channel: string;
-  author?: string;
-  message_date: string;
-  views: number;
-  quality_score: number;
-  url: string;
-}
-
-export interface AnalysisRSSArticle {
-  id: string;
-  title: string;
-  content?: string;
-  description: string;
-  author?: string;
-  published_at: string;
-  source: string;
-  quality_score: number;
-  url: string;
-}
-
-export interface AIAnalysisResponse {
-  analysis: DigestAnalysis;
-  token_usage: TokenUsage;
-  model_info: {
-    provider: string;
-    model: string;
-    reasoning_time_ms?: number;
-  };
-  processing_time_ms: number;
-}
-
-export interface DigestAnalysis {
-  title: string;
-  executive_summary: string;
-  key_insights: string[];
-  trending_topics: TrendingTopic[];
-  content_analysis: ContentAnalysis;
-  recommendations: string[];
-  confidence_score: number;
-}
-
-export interface TrendingTopic {
-  topic: string;
-  relevance_score: number;
-  supporting_content: string[];
-  trend_direction: 'rising' | 'stable' | 'declining';
-}
-
-export interface ContentAnalysis {
-  sentiment: {
-    overall: 'positive' | 'negative' | 'neutral';
-    confidence: number;
-    breakdown: {
-      positive: number;
-      neutral: number;
-      negative: number;
-    };
-  };
-  themes: {
-    name: string;
-    frequency: number;
-    significance: number;
-  }[];
-  quality_distribution: {
-    high_quality_percentage: number;
-    average_engagement: number;
-    content_diversity: number;
-  };
-}
-```
-
-## 🤖 Building the AI Service
-
-Now let's create our unified AI service that works with both OpenAI and Anthropic:
-
-```typescript
 // lib/ai/ai-service.ts
 
 import { openai } from '@ai-sdk/openai';
@@ -318,10 +128,11 @@ export class AIService {
         processing_time_ms: processingTime
       };
 
-    } catch (error) {
-      progress.fail(`AI analysis failed: ${error.message}`);
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      progress.fail(`AI analysis failed: ${errorMessage}`);
       logger.error('AI analysis failed', { 
-        error: error.message,
+        error: errorMessage,
         provider: this.currentConfig.provider,
         model: this.currentConfig.modelName 
       });
@@ -492,12 +303,12 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
       } else {
         return await this.callAnthropic(prompt, outputFormat);
       }
-    } catch (error) {
+    } catch (error: any) {
       const duration = Date.now() - startTime;
       logger.error(`AI model call failed after ${duration}ms`, {
         provider: this.currentConfig.provider,
         model: this.currentConfig.modelName,
-        error: error.message
+        error: error instanceof Error ? error.message : String(error)
       });
       throw error;
     }
@@ -520,8 +331,8 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
     return {
       text: result.text,
       usage: result.usage,
-      reasoning_time_ms: result.response?.usage?.completion_tokens_details?.reasoning_tokens ? 
-        (result.response.usage.completion_tokens_details.reasoning_tokens * 50) : undefined // Rough estimate
+      reasoning_time_ms: result.usage?.completionTokens ? 
+        (result.usage.completionTokens * 50) : undefined // Rough estimate for reasoning time
     };
   }
 
@@ -552,8 +363,8 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
     return {
       text: result.text,
       usage: result.usage,
-      reasoning_time_ms: result.response?.usage?.cache_read_input_tokens ? 
-        (result.response.usage.cache_read_input_tokens * 2) : undefined // Rough estimate
+      reasoning_time_ms: result.usage?.promptTokens ? 
+        (result.usage.promptTokens * 2) : undefined // Rough estimate for reasoning time
     };
   }
 
@@ -593,7 +404,7 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
 
       return parsed as DigestAnalysis;
 
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Failed to parse AI response', { error: error.message, response: responseText.substring(0, 500) });
       
       // Fallback response
@@ -701,225 +512,3 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
     }
   }
 }
-```
-
-## 🧪 Testing Your AI Integration
-
-Let's create a comprehensive test for our AI service:
-
-```typescript
-// scripts/test/test-ai.ts
-
-import { config } from 'dotenv';
-config({ path: '.env.local' });
-
-import { AIService } from '../../lib/ai/ai-service';
-import { AIAnalysisRequest } from '../../types/ai';
-import logger from '../../lib/logger';
-
-async function testAIIntegration() {
-  console.log('🤖 Testing AI Integration...\n');
-
-  try {
-    // Test 1: OpenAI Connection
-    console.log('1. Testing OpenAI Connection:');
-    const openaiService = AIService.getInstance();
-    openaiService.useOpenAI('gpt-4o');
-    
-    const openaiConnected = await openaiService.testConnection();
-    if (openaiConnected) {
-      console.log('✅ OpenAI connection successful');
-    } else {
-      console.log('❌ OpenAI connection failed');
-    }
-
-    // Test 2: Anthropic Connection
-    console.log('\n2. Testing Anthropic Connection:');
-    openaiService.useClaude('claude-3-5-sonnet-20241022');
-    
-    const anthropicConnected = await openaiService.testConnection();
-    if (anthropicConnected) {
-      console.log('✅ Anthropic connection successful');
-    } else {
-      console.log('❌ Anthropic connection failed');
-    }
-
-    // Test 3: Content Analysis
-    console.log('\n3. Testing Content Analysis:');
-    
-    const testContent: AIAnalysisRequest = {
-      content: {
-        tweets: [
-          {
-            id: 'tweet1',
-            text: 'Breaking: New AI model shows unprecedented capabilities in reasoning and mathematics',
-            author: 'AI_News',
-            created_at: '2024-01-15T10:00:00Z',
-            engagement_score: 150,
-            quality_score: 0.9,
-            url: 'https://twitter.com/AI_News/status/1'
-          },
-          {
-            id: 'tweet2', 
-            text: 'The future of work is changing rapidly with AI automation. Companies need to adapt now.',
-            author: 'TechExpert',
-            created_at: '2024-01-15T11:00:00Z',
-            engagement_score: 85,
-            quality_score: 0.8,
-            url: 'https://twitter.com/TechExpert/status/2'
-          }
-        ],
-        rss_articles: [
-          {
-            id: 'article1',
-            title: 'The Rise of Large Language Models in Enterprise',
-            description: 'How companies are integrating AI into their workflows',
-            content: 'Large language models are transforming how businesses operate...',
-            author: 'Jane Smith',
-            published_at: '2024-01-15T09:00:00Z',
-            source: 'TechCrunch',
-            quality_score: 0.95,
-            url: 'https://techcrunch.com/article1'
-          }
-        ],
-        timeframe: {
-          from: '2024-01-15T00:00:00Z',
-          to: '2024-01-15T23:59:59Z'
-        },
-        metadata: {
-          total_sources: 3,
-          source_breakdown: {
-            twitter: 2,
-            telegram: 0,
-            rss: 1
-          }
-        }
-      },
-      analysisType: 'digest'
-    };
-
-    // Test with Claude (current model)
-    console.log('   Testing with Claude...');
-    const claudeResponse = await openaiService.analyzeContent(testContent);
-    
-    console.log(`✅ Claude Analysis Complete:`);
-    console.log(`   Title: "${claudeResponse.analysis.title}"`);
-    console.log(`   Key Insights: ${claudeResponse.analysis.key_insights.length} insights`);
-    console.log(`   Trending Topics: ${claudeResponse.analysis.trending_topics.length} topics`);
-    console.log(`   Confidence: ${claudeResponse.analysis.confidence_score.toFixed(2)}`);
-    console.log(`   Tokens: ${claudeResponse.token_usage.total_tokens} (Prompt: ${claudeResponse.token_usage.prompt_tokens}, Completion: ${claudeResponse.token_usage.completion_tokens})`);
-    console.log(`   Processing Time: ${(claudeResponse.processing_time_ms / 1000).toFixed(2)}s`);
-
-    // Test with OpenAI
-    console.log('\n   Testing with OpenAI...');
-    openaiService.useOpenAI('gpt-4o');
-    const openaiResponse = await openaiService.analyzeContent(testContent);
-    
-    console.log(`✅ OpenAI Analysis Complete:`);
-    console.log(`   Title: "${openaiResponse.analysis.title}"`);
-    console.log(`   Key Insights: ${openaiResponse.analysis.key_insights.length} insights`);
-    console.log(`   Trending Topics: ${openaiResponse.analysis.trending_topics.length} topics`);
-    console.log(`   Confidence: ${openaiResponse.analysis.confidence_score.toFixed(2)}`);
-    console.log(`   Tokens: ${openaiResponse.token_usage.total_tokens} (Prompt: ${openaiResponse.token_usage.prompt_tokens}, Completion: ${openaiResponse.token_usage.completion_tokens})`);
-    console.log(`   Processing Time: ${(openaiResponse.processing_time_ms / 1000).toFixed(2)}s`);
-
-    // Test 4: Cost Analysis
-    console.log('\n4. Cost Analysis:');
-    
-    const claudeCost = (claudeResponse.token_usage.prompt_tokens * 0.000003) + 
-                      (claudeResponse.token_usage.completion_tokens * 0.000015);
-    const openaiCost = (openaiResponse.token_usage.prompt_tokens * 0.0000025) + 
-                      (openaiResponse.token_usage.completion_tokens * 0.00001);
-    
-    console.log(`   Claude Cost: $${claudeCost.toFixed(4)}`);
-    console.log(`   OpenAI Cost: $${openaiCost.toFixed(4)}`);
-    console.log(`   Cost Difference: ${claudeCost > openaiCost ? 'Claude more expensive' : 'OpenAI more expensive'} by $${Math.abs(claudeCost - openaiCost).toFixed(4)}`);
-
-    // Test 5: Response Quality Comparison
-    console.log('\n5. Response Quality Comparison:');
-    console.log(`   Claude Executive Summary: "${claudeResponse.analysis.executive_summary.substring(0, 100)}..."`);
-    console.log(`   OpenAI Executive Summary: "${openaiResponse.analysis.executive_summary.substring(0, 100)}..."`);
-
-    console.log('\n🎉 AI integration test completed successfully!');
-    console.log('\n💡 Both models are working. Choose based on your needs:');
-    console.log('   - Claude: Better for complex analysis and reasoning');
-    console.log('   - OpenAI: Faster and often more cost-effective');
-
-  } catch (error) {
-    logger.error('AI integration test failed', error);
-    console.error('\n❌ Test failed:', error.message);
-    
-    if (error.message.includes('API_KEY')) {
-      console.log('\n💡 Make sure you have valid API keys in .env.local:');
-      console.log('   OPENAI_API_KEY=your_openai_key');
-      console.log('   ANTHROPIC_API_KEY=your_anthropic_key');
-    }
-    
-    process.exit(1);
-  }
-}
-
-testAIIntegration();
-```
-
-## 🎯 What We've Accomplished
-
-You now have a sophisticated AI integration system that:
-
-✅ **Supports multiple AI providers** (OpenAI and Anthropic)  
-✅ **Handles structured content analysis** with comprehensive prompts  
-✅ **Provides intelligent cost management** with usage tracking  
-✅ **Includes robust error handling** and fallback responses  
-✅ **Offers configurable model selection** based on use case  
-✅ **Delivers structured, actionable insights** from raw content  
-
-### 🔍 Pro Tips & Common Pitfalls
-
-**💡 Pro Tip:** Start with smaller content batches to understand token usage patterns before scaling up.
-
-**⚠️ Common Pitfall:** Don't send too much content at once. AI models have context limits, and costs scale with token usage.
-
-**🔧 Performance Tip:** Use Claude for complex analysis and reasoning tasks, OpenAI for faster, more straightforward processing.
-
-**💰 Cost Optimization:** Pre-filter low-quality content before sending to AI models to minimize token usage.
-
----
-
-### 📋 Complete Code Summary - Chapter 7
-
-**Core AI Service:**
-```typescript
-// lib/ai/ai-service.ts - Unified AI service supporting OpenAI and Anthropic
-// types/ai.ts - Comprehensive AI integration types
-```
-
-**Testing:**
-```typescript
-// scripts/test/test-ai.ts - Comprehensive AI integration test with cost analysis
-```
-
-**Package.json scripts to add:**
-```json
-{
-  "scripts": {
-    "test:ai": "npm run script scripts/test/test-ai.ts"
-  }
-}
-```
-
-**Environment variables needed:**
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-```
-
-**Test your AI integration:**
-```bash
-npm run test:ai
-```
-
-**Next up:** Chapter 8 will show you advanced AI techniques - building sophisticated prompts, handling different content types, and creating specialized analysis workflows. We'll also explore cost optimization strategies and advanced model features!
-
----
-
-*Ready to master advanced AI techniques? Chapter 8 will teach you prompt engineering secrets and advanced analysis patterns that separate amateur AI integrations from professional-grade systems! 🧠*
