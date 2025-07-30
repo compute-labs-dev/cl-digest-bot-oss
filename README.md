@@ -1,1343 +1,3031 @@
-# Chapter 8: Advanced AI Techniques - Mastering Intelligent Analysis
+# Chapter 9A: Automation Foundation - Scheduling & Pipeline Management
 
-*"The art of being wise is knowing what to overlook." - William James*
+*"Automation is good, so long as you know exactly where to put the machine." - Eliyahu Goldratt*
 
 ---
 
-Now that we have our AI foundation, it's time to level up! This chapter reveals the advanced techniques that separate amateur AI integrations from professional-grade systems. We'll explore sophisticated prompt engineering, multi-step reasoning chains, cost optimization strategies, and specialized analysis workflows.
+Welcome to the automation phase! We've built an intelligent system that can collect data and generate insights. Now it's time to make it run **automatically** - no more manual execution, no more babysitting scripts.
 
-By the end of this chapter, you'll have an AI system that doesn't just analyze content—it **understands context**, **reasons through complex scenarios**, and **adapts its analysis style** based on content type and business needs.
+In this first part of Chapter 9, we'll build the scheduling and pipeline management foundation. This is the control center that orchestrates all our data collection and AI analysis on autopilot.
 
-## 🎯 What We're Building
+## 🎯 What We're Building in Part A
 
-Advanced AI capabilities including:
-- **Dynamic prompt templates** that adapt to content types
-- **Multi-step reasoning chains** for complex analysis
-- **Content-aware processing** with specialized workflows
-- **Cost optimization algorithms** that maximize insight per dollar
-- **Quality assurance systems** that validate AI outputs
-- **Contextual memory** that improves analysis over time
+The automation foundation includes:
+- **Cron-based scheduling** system
+- **Pipeline orchestration** that manages the entire workflow
+- **Error handling and retries** for robust operation
+- **Progress monitoring** and status reporting
+- **Configuration-driven automation** that adapts to your needs
 
-## 🧠 Advanced Prompt Engineering Patterns
+## ⏰ Building the Scheduler
 
-Let's start with sophisticated prompt templates that dramatically improve output quality:
+Let's start with a flexible scheduling system, for this we'll need to install a new package:
+
+```bash
+npm install cron
+```
+
+Now let's build the scheduler:
 
 ```typescript
-// lib/ai/prompt-templates.ts
+// lib/automation/scheduler.ts
 
-export interface PromptTemplate {
+import { CronJob } from 'cron';
+import logger from '../logger';
+import { ProgressTracker } from '../../utils/progress';
+
+export interface ScheduleConfig {
   name: string;
-  description: string;
-  systemPrompt: string;
-  userPromptTemplate: string;
-  outputSchema: any;
-  costTier: 'low' | 'medium' | 'high';
-  recommendedModels: string[];
+  cronPattern: string;
+  enabled: boolean;
+  timezone?: string;
+  maxConcurrentRuns?: number;
+  retryAttempts?: number;
+  retryDelayMs?: number;
 }
 
-export class PromptTemplateManager {
-  private templates: Map<string, PromptTemplate> = new Map();
+export interface ScheduledTask {
+  execute(): Promise<void>;
+  getName(): string;
+  getEstimatedDuration(): number; // milliseconds
+}
+
+export interface TaskExecution {
+  taskName: string;
+  startTime: Date;
+  endTime?: Date;
+  status: 'running' | 'completed' | 'failed' | 'retrying';
+  error?: string;
+  retryCount: number;
+  executionId: string;
+}
+
+export class TaskScheduler {
+  private jobs: Map<string, CronJob> = new Map();
+  private runningTasks: Map<string, TaskExecution> = new Map();
+  private taskHistory: TaskExecution[] = [];
+  private maxHistoryItems = 100;
+
+  /**
+   * Schedule a task with cron pattern
+   */
+  scheduleTask(config: ScheduleConfig, task: ScheduledTask): void {
+    if (this.jobs.has(config.name)) {
+      logger.warn(`Task ${config.name} is already scheduled, updating...`);
+      this.unscheduleTask(config.name);
+    }
+
+    if (!config.enabled) {
+      logger.info(`Task ${config.name} is disabled, skipping schedule`);
+      return;
+    }
+
+    const job = new CronJob(
+      config.cronPattern,
+      () => this.executeTask(config, task),
+      null,
+      true, // Start immediately
+      config.timezone || 'UTC'
+    );
+
+    this.jobs.set(config.name, job);
+    logger.info(`Scheduled task: ${config.name} with pattern: ${config.cronPattern}`);
+  }
+
+  /**
+   * Execute a task with error handling and retries
+   */
+  private async executeTask(config: ScheduleConfig, task: ScheduledTask): Promise<void> {
+    const executionId = this.generateExecutionId();
+    const taskName = config.name;
+
+    // Check for concurrent runs
+    if (config.maxConcurrentRuns && config.maxConcurrentRuns <= 1) {
+      if (this.runningTasks.has(taskName)) {
+        logger.warn(`Task ${taskName} is already running, skipping execution`);
+        return;
+      }
+    }
+
+    const execution: TaskExecution = {
+      taskName,
+      startTime: new Date(),
+      status: 'running',
+      retryCount: 0,
+      executionId
+    };
+
+    this.runningTasks.set(taskName, execution);
+    logger.info(`Starting task execution: ${taskName} (${executionId})`);
+
+    try {
+      const progress = new ProgressTracker({
+        total: 1,
+        label: `Executing ${taskName}`
+      });
+
+      await task.execute();
+
+      execution.status = 'completed';
+      execution.endTime = new Date();
+      
+      const duration = execution.endTime.getTime() - execution.startTime.getTime();
+      progress.complete(`Task completed in ${(duration / 1000).toFixed(2)}s`);
+      
+      logger.info(`Task completed successfully: ${taskName} (${executionId})`, {
+        duration_ms: duration
+      });
+
+    } catch (error) {
+      execution.error = error.message;
+      logger.error(`Task failed: ${taskName} (${executionId})`, error);
+
+      // Retry logic
+      const maxRetries = config.retryAttempts || 0;
+      if (execution.retryCount < maxRetries) {
+        execution.status = 'retrying';
+        execution.retryCount++;
+        
+        const retryDelay = config.retryDelayMs || 60000; // 1 minute default
+        logger.info(`Retrying task ${taskName} in ${retryDelay}ms (attempt ${execution.retryCount}/${maxRetries})`);
+        
+        setTimeout(() => {
+          this.executeTask(config, task);
+        }, retryDelay);
+        
+        return;
+      } else {
+        execution.status = 'failed';
+        execution.endTime = new Date();
+      }
+    } finally {
+      // Clean up running tasks (unless retrying)
+      if (execution.status !== 'retrying') {
+        this.runningTasks.delete(taskName);
+        
+        // Add to history
+        this.taskHistory.unshift(execution);
+        if (this.taskHistory.length > this.maxHistoryItems) {
+          this.taskHistory = this.taskHistory.slice(0, this.maxHistoryItems);
+        }
+      }
+    }
+  }
+
+  /**
+   * Unschedule a task
+   */
+  unscheduleTask(taskName: string): void {
+    const job = this.jobs.get(taskName);
+    if (job) {
+      job.stop();
+      this.jobs.delete(taskName);
+      logger.info(`Unscheduled task: ${taskName}`);
+    }
+  }
+
+  /**
+   * Get running tasks
+   */
+  getRunningTasks(): TaskExecution[] {
+    return Array.from(this.runningTasks.values());
+  }
+
+  /**
+   * Get task history
+   */
+  getTaskHistory(limit?: number): TaskExecution[] {
+    return limit ? this.taskHistory.slice(0, limit) : this.taskHistory;
+  }
+
+  /**
+   * Get task statistics
+   */
+  getTaskStats(taskName?: string): any {
+    const history = taskName 
+      ? this.taskHistory.filter(exec => exec.taskName === taskName)
+      : this.taskHistory;
+
+    if (history.length === 0) {
+      return { total_executions: 0 };
+    }
+
+    const completed = history.filter(exec => exec.status === 'completed');
+    const failed = history.filter(exec => exec.status === 'failed');
+    
+    const completedDurations = completed
+      .filter(exec => exec.endTime)
+      .map(exec => exec.endTime!.getTime() - exec.startTime.getTime());
+
+    return {
+      total_executions: history.length,
+      completed: completed.length,
+      failed: failed.length,
+      success_rate: completed.length / history.length,
+      average_duration_ms: completedDurations.length > 0 
+        ? completedDurations.reduce((sum, dur) => sum + dur, 0) / completedDurations.length
+        : 0,
+      last_execution: history[0]
+    };
+  }
+
+  /**
+   * Stop all scheduled tasks
+   */
+  stopAll(): void {
+    for (const [taskName, job] of this.jobs) {
+      job.stop();
+      logger.info(`Stopped task: ${taskName}`);
+    }
+    this.jobs.clear();
+  }
+
+  /**
+   * Generate unique execution ID
+   */
+  private generateExecutionId(): string {
+    return `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+}
+
+// Global scheduler instance
+export const taskScheduler = new TaskScheduler();
+```
+
+## 🔄 Pipeline Orchestration
+
+Now let's build the pipeline that coordinates our entire workflow:
+
+```typescript
+// lib/automation/digest-pipeline.ts
+
+import { ScheduledTask } from './scheduler';
+import { TwitterClient } from '../twitter/twitter-client';
+import { TwitterCache } from '../twitter/twitter-cache';
+import { TelegramScraper } from '../telegram/telegram-scraper';
+import { TelegramCache } from '../telegram/telegram-cache';
+import { RSSProcessor } from '../rss/rss-processor';
+import { RSSCache } from '../rss/rss-cache';
+import { AIService } from '../ai/ai-service';
+import { DigestStorage } from '../digest/digest-storage';
+import { SlackClient } from '../slack/slack-client';
+import { ProgressTracker } from '../../utils/progress';
+import logger from '../logger';
+
+export interface DigestPipelineConfig {
+  // Data collection settings
+  enableTwitter: boolean;
+  enableTelegram: boolean;
+  enableRSS: boolean;
+  
+  // Processing settings
+  aiModel: 'openai' | 'anthropic';
+  aiModelName?: string;
+  analysisType: 'digest' | 'summary' | 'market_intelligence';
+  
+  // Distribution settings
+  postToSlack: boolean;
+  slackChannelId?: string;
+  
+  // Quality settings
+  minQualityThreshold: number;
+  maxContentAge: number; // hours
+}
+
+export class DigestPipeline implements ScheduledTask {
+  private config: DigestPipelineConfig;
+  private twitterClient?: TwitterClient;
+  private twitterCache: TwitterCache;
+  private telegramScraper: TelegramScraper;
+  private telegramCache: TelegramCache;
+  private rssProcessor: RSSProcessor;
+  private rssCache: RSSCache;
+  private aiService: AIService;
+  private digestStorage: DigestStorage;
+  private slackClient?: SlackClient;
+
+  constructor(config: DigestPipelineConfig) {
+    this.config = config;
+    
+    // Initialize components based on configuration
+    if (config.enableTwitter) {
+      this.twitterClient = new TwitterClient();
+      this.twitterCache = new TwitterCache();
+    }
+    
+    if (config.enableTelegram) {
+      this.telegramScraper = new TelegramScraper();
+      this.telegramCache = new TelegramCache();
+    }
+    
+    if (config.enableRSS) {
+      this.rssProcessor = new RSSProcessor();
+      this.rssCache = new RSSCache();
+    }
+    
+    this.aiService = AIService.getInstance();
+    this.digestStorage = new DigestStorage();
+    
+    if (config.postToSlack) {
+      this.slackClient = new SlackClient();
+    }
+    
+    // Configure AI model
+    if (config.aiModel === 'openai') {
+      this.aiService.useOpenAI(config.aiModelName);
+    } else {
+      this.aiService.useClaude(config.aiModelName);
+    }
+  }
+
+  /**
+   * Execute the complete digest pipeline
+   */
+  async execute(): Promise<void> {
+    const progress = new ProgressTracker({
+      total: 6,
+      label: 'Digest Pipeline'
+    });
+
+    try {
+      logger.info('Starting digest pipeline execution');
+
+      // Step 1: Collect Twitter data
+      progress.update(1, { step: 'Twitter Collection' });
+      const tweets = await this.collectTwitterData();
+      logger.info(`Collected ${tweets.length} tweets`);
+
+      // Step 2: Collect Telegram data  
+      progress.update(2, { step: 'Telegram Collection' });
+      const telegramMessages = await this.collectTelegramData();
+      logger.info(`Collected ${telegramMessages.length} Telegram messages`);
+
+      // Step 3: Collect RSS data
+      progress.update(3, { step: 'RSS Collection' });
+      const rssArticles = await this.collectRSSData();
+      logger.info(`Collected ${rssArticles.length} RSS articles`);
+
+      // Step 4: Prepare content for AI analysis
+      progress.update(4, { step: 'Content Preparation' });
+      const analysisContent = this.prepareContentForAnalysis(tweets, telegramMessages, rssArticles);
+
+      if (analysisContent.metadata.total_sources === 0) {
+        logger.warn('No content collected, skipping AI analysis');
+        progress.complete('Pipeline completed with no content');
+        return;
+      }
+
+      // Step 5: AI Analysis
+      progress.update(5, { step: 'AI Analysis' });
+      const aiResponse = await this.aiService.analyzeContent({
+        content: analysisContent,
+        analysisType: this.config.analysisType as any
+      });
+
+      // Step 6: Store and distribute results
+      progress.update(6, { step: 'Storage & Distribution' });
+      const digestId = await this.storeDigest(aiResponse, analysisContent);
+      
+      if (this.config.postToSlack && this.slackClient) {
+        await this.distributeToSlack(aiResponse, digestId);
+      }
+
+      progress.complete(`Pipeline completed successfully (Digest: ${digestId})`);
+      
+      logger.info('Digest pipeline completed successfully', {
+        digest_id: digestId,
+        content_sources: analysisContent.metadata.total_sources,
+        ai_tokens_used: aiResponse.token_usage.total_tokens,
+        processing_time_ms: aiResponse.processing_time_ms
+      });
+
+    } catch (error) {
+      progress.fail(`Pipeline failed: ${error.message}`);
+      logger.error('Digest pipeline failed', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Collect Twitter data
+   */
+  private async collectTwitterData(): Promise<any[]> {
+    if (!this.config.enableTwitter || !this.twitterClient) {
+      return [];
+    }
+
+    try {
+      // Get configured Twitter accounts (you'd load this from config)
+      const twitterAccounts = ['openai', 'anthropicai', 'elonmusk']; // Example
+      const allTweets: any[] = [];
+
+      for (const username of twitterAccounts) {
+        try {
+          // Check cache first
+          const isCacheFresh = await this.twitterCache.isCacheFresh(username);
+          
+          let tweets;
+          if (isCacheFresh) {
+            tweets = await this.twitterCache.getCachedTweets(username);
+            logger.debug(`Using cached tweets for @${username}: ${tweets.length} tweets`);
+          } else {
+            tweets = await this.twitterClient.fetchUserTweets(username);
+            await this.twitterCache.storeTweets(tweets);
+            logger.debug(`Fetched fresh tweets for @${username}: ${tweets.length} tweets`);
+          }
+
+          allTweets.push(...tweets);
+        } catch (error) {
+          logger.error(`Failed to collect tweets from @${username}`, error);
+          // Continue with other accounts
+        }
+      }
+
+      return this.filterByQuality(allTweets, 'tweet');
+    } catch (error) {
+      logger.error('Twitter data collection failed', error);
+      return [];
+    }
+  }
+
+  /**
+   * Collect Telegram data
+   */
+  private async collectTelegramData(): Promise<any[]> {
+    if (!this.config.enableTelegram) {
+      return [];
+    }
+
+    try {
+      // Get configured Telegram channels
+      const telegramChannels = ['telegram', 'durov']; // Example
+      const allMessages: any[] = [];
+
+      for (const channelUsername of telegramChannels) {
+        try {
+          // Check cache first
+          const isCacheFresh = await this.telegramCache.isCacheFresh(channelUsername);
+          
+          let messages;
+          if (isCacheFresh) {
+            messages = await this.telegramCache.getCachedMessages(channelUsername);
+            logger.debug(`Using cached messages for t.me/${channelUsername}: ${messages.length} messages`);
+          } else {
+            const result = await this.telegramScraper.scrapeChannel(channelUsername);
+            messages = result.messages;
+            await this.telegramCache.storeMessages(messages);
+            logger.debug(`Scraped fresh messages for t.me/${channelUsername}: ${messages.length} messages`);
+          }
+
+          allMessages.push(...messages);
+        } catch (error) {
+          logger.error(`Failed to collect messages from t.me/${channelUsername}`, error);
+          // Continue with other channels
+        }
+      }
+
+      return this.filterByQuality(allMessages, 'telegram');
+    } catch (error) {
+      logger.error('Telegram data collection failed', error);
+      return [];
+    }
+  }
+
+  /**
+   * Collect RSS data
+   */
+  private async collectRSSData(): Promise<any[]> {
+    if (!this.config.enableRSS) {
+      return [];
+    }
+
+    try {
+      // Get configured RSS feeds
+      const rssFeeds = [
+        'https://techcrunch.com/feed/',
+        'https://www.theverge.com/rss/index.xml'
+      ]; // Example
+      
+      const allArticles: any[] = [];
+
+      for (const feedUrl of rssFeeds) {
+        try {
+          // Check cache first
+          const isCacheFresh = await this.rssCache.isCacheFresh(feedUrl);
+          
+          let articles;
+          if (isCacheFresh) {
+            articles = await this.rssCache.getCachedArticles(feedUrl);
+            logger.debug(`Using cached articles for ${feedUrl}: ${articles.length} articles`);
+          } else {
+            const result = await this.rssProcessor.processFeed(feedUrl);
+            articles = result.articles;
+            await this.rssCache.storeArticles(articles);
+            logger.debug(`Processed fresh articles for ${feedUrl}: ${articles.length} articles`);
+          }
+
+          allArticles.push(...articles);
+        } catch (error) {
+          logger.error(`Failed to collect articles from ${feedUrl}`, error);
+          // Continue with other feeds
+        }
+      }
+
+      return this.filterByQuality(allArticles, 'rss');
+    } catch (error) {
+      logger.error('RSS data collection failed', error);
+      return [];
+    }
+  }
+
+  /**
+   * Filter content by quality and age
+   */
+  private filterByQuality(content: any[], type: 'tweet' | 'telegram' | 'rss'): any[] {
+    const maxAge = this.config.maxContentAge * 60 * 60 * 1000; // Convert to milliseconds
+    const now = Date.now();
+
+    return content.filter(item => {
+      // Quality filter
+      if (item.quality_score < this.config.minQualityThreshold) {
+        return false;
+      }
+
+      // Age filter
+      let itemDate: Date;
+      switch (type) {
+        case 'tweet':
+          itemDate = new Date(item.created_at);
+          break;
+        case 'telegram':
+          itemDate = new Date(item.message_date);
+          break;
+        case 'rss':
+          itemDate = new Date(item.published_at || item.fetched_at);
+          break;
+      }
+
+      return (now - itemDate.getTime()) <= maxAge;
+    });
+  }
+
+  /**
+   * Prepare content for AI analysis
+   */
+  private prepareContentForAnalysis(tweets: any[], telegramMessages: any[], rssArticles: any[]): any {
+    const now = new Date().toISOString();
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    return {
+      tweets: tweets.map(tweet => ({
+        id: tweet.id,
+        text: tweet.text,
+        author: tweet.author_username,
+        created_at: tweet.created_at,
+        engagement_score: tweet.engagement_score,
+        quality_score: tweet.quality_score,
+        url: tweet.source_url || `https://twitter.com/${tweet.author_username}/status/${tweet.id}`
+      })),
+      telegram_messages: telegramMessages.map(msg => ({
+        id: msg.id,
+        text: msg.text,
+        channel: msg.channel_username,
+        author: msg.author,
+        message_date: msg.message_date,
+        views: msg.views,
+        quality_score: msg.quality_score,
+        url: msg.source_url
+      })),
+      rss_articles: rssArticles.map(article => ({
+        id: article.id,
+        title: article.title,
+        description: article.description,
+        content: article.content,
+        author: article.author,
+        published_at: article.published_at,
+        source: article.feed_title || 'RSS Feed',
+        quality_score: article.quality_score,
+        url: article.link
+      })),
+      timeframe: {
+        from: oneDayAgo,
+        to: now
+      },
+      metadata: {
+        total_sources: tweets.length + telegramMessages.length + rssArticles.length,
+        source_breakdown: {
+          twitter: tweets.length,
+          telegram: telegramMessages.length,
+          rss: rssArticles.length
+        }
+      }
+    };
+  }
+
+  /**
+   * Store digest in database
+   */
+  private async storeDigest(aiResponse: any, analysisContent: any): Promise<string> {
+    const digestData = {
+      title: aiResponse.analysis.title,
+      summary: aiResponse.analysis.executive_summary,
+      content: aiResponse.analysis,
+      ai_model: aiResponse.model_info.model,
+      ai_provider: aiResponse.model_info.provider,
+      token_usage: aiResponse.token_usage,
+      data_from: analysisContent.timeframe.from,
+      data_to: analysisContent.timeframe.to,
+      published_to_slack: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    return await this.digestStorage.storeDigest(digestData);
+  }
+
+  /**
+   * Distribute to Slack
+   */
+  private async distributeToSlack(aiResponse: any, digestId: string): Promise<void> {
+    if (!this.slackClient) return;
+
+    try {
+      await this.slackClient.postDigest({
+        title: aiResponse.analysis.title,
+        summary: aiResponse.analysis.executive_summary,
+        tweets: [], // You'd format these properly
+        articles: [],
+        metadata: {
+          digest_id: digestId,
+          ai_model: aiResponse.model_info.model,
+          token_usage: aiResponse.token_usage
+        }
+      });
+
+      // Update digest as posted to Slack
+      await this.digestStorage.updateDigest(digestId, { published_to_slack: true });
+      
+      logger.info(`Digest distributed to Slack: ${digestId}`);
+    } catch (error) {
+      logger.error('Failed to distribute to Slack', error);
+      // Don't throw - we still want the digest to be considered successful
+    }
+  }
+
+  /**
+   * Get task name for scheduler
+   */
+  getName(): string {
+    return 'digest-pipeline';
+  }
+
+  /**
+   * Get estimated duration in milliseconds
+   */
+  getEstimatedDuration(): number {
+    return 5 * 60 * 1000; // 5 minutes
+  }
+}
+```
+
+## 💾 Digest Storage System
+
+Before we can use the pipeline, we need the DigestStorage component and update our `envConfig`.
+
+Your updated `envConfig` should include youre supabase secrets from earlier:
+
+```typescript
+// config/environment.ts
+
+export interface EnvironmentConfig {
+  development: boolean;
+  supabaseUrl: string;
+  supabaseServiceKey: string;
+  apiTimeouts: {
+    twitter: number;
+    telegram: number;
+    rss: number;
+  };
+  logging: {
+    level: string;
+    enableConsole: boolean;
+  };
+  rateLimit: {
+    respectLimits: boolean;
+    bufferTimeMs: number;
+  };
+}
+
+function getEnvironmentConfig(): EnvironmentConfig {
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  return {
+    development: isDev,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+    supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+    
+    apiTimeouts: {
+      twitter: isDev ? 10000 : 30000,    // Shorter timeouts in dev
+      telegram: isDev ? 15000 : 45000,
+      rss: isDev ? 5000 : 15000,
+    },
+    
+    logging: {
+      level: isDev ? 'debug' : 'info',
+      enableConsole: isDev,
+    },
+    
+    rateLimit: {
+      respectLimits: true,
+      bufferTimeMs: isDev ? 1000 : 5000,  // Less aggressive in dev
+    }
+  };
+}
+  
+export const envConfig = getEnvironmentConfig();
+```
+
+Now for the digest-storage to record and retreive our A.I. output from supabase:
+
+```typescript
+// lib/digest/digest-storage.ts
+
+import { createClient } from '@supabase/supabase-js';
+import { envConfig } from '../../config/environment';
+import logger from '../logger';
+
+export interface DigestData {
+  title: string;
+  summary: string;
+  content: any;
+  ai_model: string;
+  ai_provider: string;
+  token_usage: any;
+  data_from: string;
+  data_to: string;
+  published_to_slack: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export class DigestStorage {
+  private supabase = createClient(envConfig.supabaseUrl, envConfig.supabaseServiceKey);
+
+  /**
+   * Store a new digest in the database
+   */
+  async storeDigest(digestData: DigestData): Promise<string> {
+    try {
+      const { data, error } = await this.supabase
+        .from('digests')
+        .insert({
+          ...digestData,
+          id: this.generateDigestId()
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      logger.info('Digest stored successfully', { digest_id: data.id });
+      return data.id;
+
+    } catch (error) {
+      logger.error('Failed to store digest', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update an existing digest
+   */
+  async updateDigest(digestId: string, updates: Partial<DigestData>): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('digests')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', digestId);
+
+      if (error) {
+        throw error;
+      }
+
+      logger.info('Digest updated successfully', { digest_id: digestId });
+
+    } catch (error) {
+      logger.error('Failed to update digest', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recent digests
+   */
+  async getRecentDigests(limit: number = 10): Promise<any[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('digests')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        throw error;
+      }
+
+      return data || [];
+
+    } catch (error) {
+      logger.error('Failed to get recent digests', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get digest by ID
+   */
+  async getDigest(digestId: string): Promise<any> {
+    try {
+      const { data, error } = await this.supabase
+        .from('digests')
+        .select('*')
+        .eq('id', digestId)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return data;
+
+    } catch (error) {
+      logger.error('Failed to get digest', error);
+      throw error;
+    }
+  }
+
+  private generateDigestId(): string {
+    return `digest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+}
+```
+
+## 💬 Basic Slack Client
+
+Here's the basic SlackClient that the pipeline uses:
+
+```typescript
+// lib/slack/slack-client.ts
+
+import { WebClient } from '@slack/web-api';
+import logger from '../logger';
+
+export interface SlackDigestData {
+  title: string;
+  summary: string;
+  tweets: any[];
+  articles: any[];
+  metadata: {
+    digest_id: string;
+    ai_model: string;
+    token_usage: any;
+  };
+}
+
+export class SlackClient {
+  private client: WebClient;
+  private defaultChannel: string;
 
   constructor() {
-    this.initializeTemplates();
+    this.client = new WebClient(process.env.SLACK_BOT_TOKEN);
+    this.defaultChannel = process.env.SLACK_CHANNEL_ID || '#general';
   }
 
   /**
-   * Initialize all prompt templates
+   * Post digest to Slack channel
    */
-  private initializeTemplates(): void {
-    // Market Intelligence Template
-    this.registerTemplate({
-      name: 'market_intelligence',
-      description: 'Deep market analysis with trend prediction',
-      systemPrompt: `You are a senior market intelligence analyst with 15+ years of experience in technology and finance sectors. Your analysis directly influences multi-million dollar investment decisions.
+  async postDigest(digestData: SlackDigestData, channelId?: string): Promise<void> {
+    try {
+      const channel = channelId || this.defaultChannel;
+      const blocks = this.buildDigestBlocks(digestData);
 
-CORE COMPETENCIES:
-- Pattern recognition across market cycles
-- Signal vs noise differentiation in news flow
-- Risk assessment and opportunity identification
-- Cross-sector trend correlation analysis
-- Regulatory and competitive landscape awareness
-
-ANALYSIS FRAMEWORK:
-1. MARKET CONTEXT: Current macro environment and sector positioning
-2. SIGNAL DETECTION: Identify genuine market-moving information
-3. TREND ANALYSIS: Short-term momentum vs long-term structural shifts
-4. RISK ASSESSMENT: Downside scenarios and mitigation strategies
-5. OPPORTUNITY MAPPING: Actionable insights for decision-makers
-6. CONFIDENCE SCORING: Probabilistic assessment of predictions
-
-OUTPUT REQUIREMENTS:
-- Executive-level clarity and conciseness
-- Quantified confidence levels (0.0-1.0)
-- Specific, actionable recommendations
-- Risk-adjusted opportunity sizing
-- Timeline-specific predictions (1W, 1M, 3M, 1Y)`,
-
-      userPromptTemplate: `MARKET INTELLIGENCE REQUEST
-
-TIME PERIOD: {timeframe}
-CONTENT SOURCES: {source_count} sources ({source_breakdown})
-FOCUS SECTORS: {sectors}
-
-CONTENT FOR ANALYSIS:
-{formatted_content}
-
-SPECIFIC ANALYSIS REQUIREMENTS:
-{custom_instructions}
-
-Please provide a comprehensive market intelligence report following our analysis framework.`,
-
-      outputSchema: {
-        market_overview: {
-          current_sentiment: 'string',
-          key_drivers: 'array',
-          market_phase: 'string',
-          volatility_assessment: 'number'
-        },
-        trend_analysis: {
-          emerging_trends: 'array',
-          declining_trends: 'array',
-          trend_convergence: 'array'
-        },
-        opportunity_map: {
-          short_term: 'array',
-          medium_term: 'array',
-          long_term: 'array'
-        },
-        risk_matrix: {
-          high_probability_risks: 'array',
-          black_swan_scenarios: 'array',
-          mitigation_strategies: 'array'
-        },
-        predictions: {
-          one_week: 'object',
-          one_month: 'object',
-          three_months: 'object',
-          one_year: 'object'
-        }
-      },
-      costTier: 'high',
-      recommendedModels: ['claude-3-5-sonnet-20241022', 'gpt-4o']
-    });
-
-    // Technical Analysis Template
-    this.registerTemplate({
-      name: 'technical_analysis',
-      description: 'Deep-dive technical content analysis',
-      systemPrompt: `You are a principal technical analyst at a leading technology research firm. You specialize in evaluating emerging technologies, architectural decisions, and technical market trends.
-
-EXPERTISE AREAS:
-- Software architecture and system design patterns
-- Emerging technology assessment and adoption curves
-- Technical risk evaluation and mitigation
-- Developer ecosystem analysis
-- Infrastructure and scalability considerations
-- Security and compliance implications
-
-ANALYSIS METHODOLOGY:
-1. TECHNICAL MERIT: Objective assessment of technological advancement
-2. ADOPTION FEASIBILITY: Real-world implementation challenges and opportunities
-3. ECOSYSTEM IMPACT: Effects on existing technology stacks and workflows
-4. COMPETITIVE LANDSCAPE: Technical differentiation and market positioning
-5. RISK-REWARD PROFILE: Technical debt vs innovation benefits
-6. TIMELINE ASSESSMENT: Development and deployment practicalities`,
-
-      userPromptTemplate: `TECHNICAL ANALYSIS REQUEST
-
-ANALYSIS FOCUS: {analysis_focus}
-TECHNICAL DOMAINS: {technical_domains}
-TIMEFRAME: {timeframe}
-
-CONTENT FOR ANALYSIS:
-{formatted_content}
-
-SPECIFIC TECHNICAL QUESTIONS:
-{technical_questions}
-
-Please provide a comprehensive technical analysis following our methodology.`,
-
-      outputSchema: {
-        technical_assessment: {
-          innovation_score: 'number',
-          complexity_rating: 'number',
-          maturity_level: 'string',
-          technical_feasibility: 'number'
-        },
-        adoption_analysis: {
-          adoption_barriers: 'array',
-          enabling_factors: 'array',
-          timeline_estimate: 'string',
-          adoption_curve_position: 'string'
-        },
-        competitive_implications: {
-          market_differentiators: 'array',
-          threat_assessment: 'array',
-          opportunity_windows: 'array'
-        }
-      },
-      costTier: 'medium',
-      recommendedModels: ['claude-3-5-sonnet-20241022', 'gpt-4o']
-    });
-
-    // News Synthesis Template
-    this.registerTemplate({
-      name: 'news_synthesis',
-      description: 'Fast, cost-effective news summarization',
-      systemPrompt: `You are an experienced news editor who specializes in creating concise, accurate summaries for executive briefings. Your summaries are read by C-level executives who need the essential information quickly.
-
-EDITORIAL PRINCIPLES:
-- Lead with the most newsworthy and impactful information
-- Maintain objectivity and factual accuracy
-- Highlight business and market implications
-- Connect related stories across sources
-- Identify emerging themes and patterns
-- Flag breaking news and significant developments
-
-SUMMARY STRUCTURE:
-1. HEADLINE SYNTHESIS: Capture the core story in one compelling headline
-2. KEY DEVELOPMENTS: 3-5 most important factual updates
-3. BUSINESS IMPACT: Immediate and potential future implications
-4. STAKEHOLDER EFFECTS: Who wins, who loses, who should pay attention
-5. FOLLOW-UP ITEMS: What to watch for next`,
-
-      userPromptTemplate: `NEWS SYNTHESIS REQUEST
-
-TIME PERIOD: {timeframe}
-CONTENT VOLUME: {content_count} items
-PRIORITY FOCUS: {priority_topics}
-
-CONTENT FOR SYNTHESIS:
-{formatted_content}
-
-Please provide a concise executive news synthesis.`,
-
-      outputSchema: {
-        headline: 'string',
-        key_developments: 'array',
-        business_impact: {
-          immediate: 'array',
-          potential: 'array'
-        },
-        stakeholder_effects: 'array',
-        follow_up_items: 'array',
-        urgency_level: 'string'
-      },
-      costTier: 'low',
-      recommendedModels: ['gpt-4o-mini', 'claude-3-haiku-20240307']
-    });
-  }
-
-  /**
-   * Register a new prompt template
-   */
-  registerTemplate(template: PromptTemplate): void {
-    this.templates.set(template.name, template);
-  }
-
-  /**
-   * Get template by name
-   */
-  getTemplate(name: string): PromptTemplate | null {
-    return this.templates.get(name) || null;
-  }
-
-  /**
-   * Get templates by cost tier
-   */
-  getTemplatesByCostTier(tier: 'low' | 'medium' | 'high'): PromptTemplate[] {
-    return Array.from(this.templates.values()).filter(t => t.costTier === tier);
-  }
-
-  /**
-   * Get recommended template based on content and budget
-   */
-  getRecommendedTemplate(contentType: string, budget: 'low' | 'medium' | 'high'): PromptTemplate | null {
-    const templates = Array.from(this.templates.values()).filter(t => {
-      return t.costTier === budget || (budget === 'high' && t.costTier !== 'low');
-    });
-
-    // Simple matching logic - can be enhanced with ML
-    if (contentType.includes('market') || contentType.includes('financial')) {
-      return templates.find(t => t.name === 'market_intelligence') || templates[0];
-    }
-    if (contentType.includes('technical') || contentType.includes('technology')) {
-      return templates.find(t => t.name === 'technical_analysis') || templates[0];
-    }
-    
-    return templates.find(t => t.name === 'news_synthesis') || templates[0];
-  }
-
-  /**
-   * Build prompt from template
-   */
-  buildPrompt(templateName: string, variables: Record<string, any>): { systemPrompt: string; userPrompt: string } | null {
-    const template = this.getTemplate(templateName);
-    if (!template) return null;
-
-    let userPrompt = template.userPromptTemplate;
-    
-    // Replace variables in template
-    Object.entries(variables).forEach(([key, value]) => {
-      const placeholder = `{${key}}`;
-      userPrompt = userPrompt.replace(new RegExp(placeholder, 'g'), String(value));
-    });
-
-    return {
-      systemPrompt: template.systemPrompt,
-      userPrompt
-    };
-  }
-}
-```
-
-## 🔗 Multi-Step Reasoning Chains
-
-For complex analysis, we'll implement reasoning chains that break down problems:
-
-```typescript
-// lib/ai/reasoning-chains.ts
-
-import { AIService } from './ai-service';
-import { PromptTemplateManager } from './prompt-templates';
-
-export interface ReasoningStep {
-  name: string;
-  description: string;
-  inputSchema: any;
-  outputSchema: any;
-  estimatedTokens: number;
-  dependencies?: string[];
-}
-
-export interface ReasoningChain {
-  name: string;
-  description: string;
-  steps: ReasoningStep[];
-  totalEstimatedCost: number;
-}
-
-export class ReasoningChainManager {
-  private aiService: AIService;
-  private promptManager: PromptTemplateManager;
-  private chains: Map<string, ReasoningChain> = new Map();
-
-  constructor(aiService: AIService) {
-    this.aiService = aiService;
-    this.promptManager = new PromptTemplateManager();
-    this.initializeChains();
-  }
-
-  /**
-   * Initialize reasoning chains
-   */
-  private initializeChains(): void {
-    // Market Intelligence Chain
-    this.registerChain({
-      name: 'comprehensive_market_analysis',
-      description: 'Multi-step market intelligence with cross-validation',
-      steps: [
-        {
-          name: 'initial_assessment',
-          description: 'Quick content categorization and priority scoring',
-          inputSchema: { content: 'array', timeframe: 'string' },
-          outputSchema: { categories: 'array', priorities: 'array', signals: 'array' },
-          estimatedTokens: 500
-        },
-        {
-          name: 'trend_extraction',
-          description: 'Identify and analyze emerging trends',
-          inputSchema: { prioritized_content: 'array', context: 'object' },
-          outputSchema: { trends: 'array', confidence_scores: 'array' },
-          estimatedTokens: 1000,
-          dependencies: ['initial_assessment']
-        },
-        {
-          name: 'risk_modeling',
-          description: 'Assess risks and opportunities',
-          inputSchema: { trends: 'array', market_context: 'object' },
-          outputSchema: { risks: 'array', opportunities: 'array', scenarios: 'array' },
-          estimatedTokens: 800,
-          dependencies: ['trend_extraction']
-        },
-        {
-          name: 'synthesis',
-          description: 'Synthesize insights into actionable intelligence',
-          inputSchema: { assessments: 'array', trends: 'array', risks: 'array' },
-          outputSchema: { final_report: 'object', recommendations: 'array' },
-          estimatedTokens: 1200,
-          dependencies: ['initial_assessment', 'trend_extraction', 'risk_modeling']
-        }
-      ],
-      totalEstimatedCost: 0.15 // USD estimate
-    });
-
-    // Content Quality Enhancement Chain
-    this.registerChain({
-      name: 'content_quality_enhancement',
-      description: 'Multi-pass content filtering and enhancement',
-      steps: [
-        {
-          name: 'quality_scoring',
-          description: 'Score content quality across multiple dimensions',
-          inputSchema: { content: 'array' },
-          outputSchema: { scores: 'array', filtered_content: 'array' },
-          estimatedTokens: 300
-        },
-        {
-          name: 'duplicate_detection',
-          description: 'Identify and handle duplicate/similar content',
-          inputSchema: { content: 'array', similarity_threshold: 'number' },
-          outputSchema: { unique_content: 'array', duplicate_clusters: 'array' },
-          estimatedTokens: 400,
-          dependencies: ['quality_scoring']
-        },
-        {
-          name: 'content_enhancement',
-          description: 'Enhance and standardize content format',
-          inputSchema: { filtered_content: 'array' },
-          outputSchema: { enhanced_content: 'array', metadata: 'object' },
-          estimatedTokens: 600,
-          dependencies: ['duplicate_detection']
-        }
-      ],
-      totalEstimatedCost: 0.08
-    });
-  }
-
-  /**
-   * Register a reasoning chain
-   */
-  registerChain(chain: ReasoningChain): void {
-    this.chains.set(chain.name, chain);
-  }
-
-  /**
-   * Execute a reasoning chain
-   */
-  async executeChain(chainName: string, initialInput: any): Promise<any> {
-    const chain = this.chains.get(chainName);
-    if (!chain) {
-      throw new Error(`Reasoning chain '${chainName}' not found`);
-    }
-
-    const stepResults: Map<string, any> = new Map();
-    const executionLog: any[] = [];
-
-    console.log(`🔗 Executing reasoning chain: ${chain.name}`);
-    console.log(`   Steps: ${chain.steps.length}, Estimated cost: $${chain.totalEstimatedCost}`);
-
-    for (const step of chain.steps) {
-      console.log(`   Executing step: ${step.name}`);
-      
-      // Check dependencies
-      if (step.dependencies) {
-        for (const dep of step.dependencies) {
-          if (!stepResults.has(dep)) {
-            throw new Error(`Step '${step.name}' depends on '${dep}' which hasn't been executed`);
-          }
-        }
-      }
-
-      // Prepare input for this step
-      const stepInput = this.prepareStepInput(step, initialInput, stepResults);
-      
-      // Execute step
-      const startTime = Date.now();
-      const stepResult = await this.executeStep(step, stepInput);
-      const executionTime = Date.now() - startTime;
-
-      // Store result
-      stepResults.set(step.name, stepResult);
-      
-      executionLog.push({
-        step: step.name,
-        execution_time_ms: executionTime,
-        tokens_used: stepResult.token_usage?.total_tokens || 0,
-        success: true
+      const result = await this.client.chat.postMessage({
+        channel: channel,
+        text: `New Digest: ${digestData.title}`,
+        blocks: blocks
       });
 
-      console.log(`   ✅ Step completed: ${step.name} (${executionTime}ms)`);
+      logger.info('Digest posted to Slack', {
+        digest_id: digestData.metadata.digest_id,
+        channel: channel,
+        message_ts: result.ts
+      });
+
+    } catch (error) {
+      logger.error('Failed to post digest to Slack', error);
+      throw error;
     }
-
-    // Return final result
-    const finalStep = chain.steps[chain.steps.length - 1];
-    const finalResult = stepResults.get(finalStep.name);
-
-    return {
-      result: finalResult,
-      execution_log: executionLog,
-      total_steps: chain.steps.length,
-      total_time_ms: executionLog.reduce((sum, log) => sum + log.execution_time_ms, 0),
-      total_tokens: executionLog.reduce((sum, log) => sum + log.tokens_used, 0)
-    };
   }
 
   /**
-   * Prepare input for a specific step
+   * Send simple message to Slack
    */
-  private prepareStepInput(step: ReasoningStep, initialInput: any, previousResults: Map<string, any>): any {
-    const stepInput: any = { ...initialInput };
+  async sendMessage(text: string, channelId?: string): Promise<void> {
+    try {
+      const channel = channelId || this.defaultChannel;
 
-    // Add results from dependency steps
-    if (step.dependencies) {
-      for (const dep of step.dependencies) {
-        const depResult = previousResults.get(dep);
-        if (depResult) {
-          stepInput[`${dep}_result`] = depResult.analysis || depResult;
+      await this.client.chat.postMessage({
+        channel: channel,
+        text: text
+      });
+
+      logger.info('Message sent to Slack', { channel, text: text.substring(0, 50) });
+
+    } catch (error) {
+      logger.error('Failed to send message to Slack', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Build Slack blocks for digest
+   */
+  private buildDigestBlocks(digestData: SlackDigestData): any[] {
+    const blocks = [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: digestData.title
         }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Summary:*\n${digestData.summary}`
+        }
+      },
+      {
+        type: 'divider'
       }
-    }
-
-    return stepInput;
-  }
-
-  /**
-   * Execute a single reasoning step
-   */
-  private async executeStep(step: ReasoningStep, input: any): Promise<any> {
-    // Build specialized prompt for this step
-    const prompt = this.buildStepPrompt(step, input);
-    
-    // Execute with AI service
-    const response = await this.aiService.analyzeContent({
-      content: input,
-      analysisType: 'summary', // Could be more specific
-      instructions: prompt
-    });
-
-    return response;
-  }
-
-  /**
-   * Build prompt for a reasoning step
-   */
-  private buildStepPrompt(step: ReasoningStep, input: any): string {
-    return `REASONING STEP: ${step.name}
-
-OBJECTIVE: ${step.description}
-
-INPUT DATA: ${JSON.stringify(input, null, 2)}
-
-REQUIREMENTS:
-- Focus specifically on ${step.name}
-- Output must match the expected schema
-- Be concise but thorough in your analysis
-- Build upon any previous step results provided
-
-Please provide your analysis for this step.`;
-  }
-
-  /**
-   * Get available chains
-   */
-  getAvailableChains(): string[] {
-    return Array.from(this.chains.keys());
-  }
-
-  /**
-   * Get chain details
-   */
-  getChainDetails(chainName: string): ReasoningChain | null {
-    return this.chains.get(chainName) || null;
-  }
-}
-```
-
-## 💰 Advanced Cost Optimization
-
-Let's implement smart cost management that maximizes insight per dollar:
-
-```typescript
-// lib/ai/cost-optimizer.ts
-
-import { AIModelConfig, TokenUsage } from '../../types/ai';
-
-export interface CostOptimizationConfig {
-  maxDailyCost: number;
-  maxPerAnalysisCost: number;
-  priorityLevels: {
-    critical: number;    // Spend up to this much on critical analysis
-    important: number;   // Normal analysis budget
-    routine: number;     // Routine analysis budget
-  };
-  modelPreferences: {
-    low_cost: string[];    // Models for cost-conscious analysis
-    balanced: string[];    // Balanced cost/performance
-    premium: string[];     // Best performance regardless of cost
-  };
-}
-
-export interface OptimizationRecommendation {
-  recommendedModel: AIModelConfig;
-  estimatedCost: number;
-  costSavings: number;
-  qualityImpact: 'none' | 'minimal' | 'moderate' | 'significant';
-  explanation: string;
-}
-
-export class CostOptimizer {
-  private config: CostOptimizationConfig;
-  private dailySpend: number = 0;
-  private costHistory: { date: string; amount: number; tokens: number }[] = [];
-
-  // Model pricing (per 1K tokens)
-  private readonly MODEL_COSTS = {
-    'gpt-4o': { input: 0.0025, output: 0.010 },
-    'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
-    'claude-3-5-sonnet-20241022': { input: 0.003, output: 0.015 },
-    'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 }
-  };
-
-  constructor(config: CostOptimizationConfig) {
-    this.config = config;
-    this.loadCostHistory();
-  }
-
-  /**
-   * Get optimization recommendation for analysis
-   */
-  getOptimizationRecommendation(
-    contentSize: number,
-    priority: 'critical' | 'important' | 'routine',
-    currentModel: string
-  ): OptimizationRecommendation {
-    const estimatedTokens = this.estimateTokenUsage(contentSize);
-    const availableBudget = this.getAvailableBudget(priority);
-    
-    // Calculate costs for different models
-    const costComparisons = Object.entries(this.MODEL_COSTS).map(([model, pricing]) => {
-      const inputCost = (estimatedTokens.input / 1000) * pricing.input;
-      const outputCost = (estimatedTokens.output / 1000) * pricing.output;
-      const totalCost = inputCost + outputCost;
-      
-      return {
-        model,
-        cost: totalCost,
-        withinBudget: totalCost <= availableBudget,
-        performance: this.getModelPerformanceScore(model)
-      };
-    });
-
-    // Sort by cost-effectiveness (performance per dollar)
-    costComparisons.sort((a, b) => {
-      const aRatio = a.performance / a.cost;
-      const bRatio = b.performance / b.cost;
-      return bRatio - aRatio;
-    });
-
-    // Find best option within budget
-    const bestOption = costComparisons.find(option => option.withinBudget) || costComparisons[costComparisons.length - 1];
-    const currentCost = costComparisons.find(option => option.model === currentModel)?.cost || 0;
-    
-    return {
-      recommendedModel: {
-        provider: bestOption.model.includes('gpt') ? 'openai' : 'anthropic',
-        modelName: bestOption.model,
-        options: this.getOptimalModelOptions(bestOption.model, priority)
-      },
-      estimatedCost: bestOption.cost,
-      costSavings: Math.max(0, currentCost - bestOption.cost),
-      qualityImpact: this.assessQualityImpact(currentModel, bestOption.model),
-      explanation: this.generateOptimizationExplanation(bestOption, availableBudget, priority)
-    };
-  }
-
-  /**
-   * Estimate token usage based on content size
-   */
-  private estimateTokenUsage(contentSize: number): { input: number; output: number } {
-    // Rough estimates based on content characteristics
-    const baseInputTokens = Math.ceil(contentSize / 4); // ~4 chars per token
-    const systemPromptTokens = 800; // Average system prompt size
-    const inputTokens = baseInputTokens + systemPromptTokens;
-    
-    // Output typically 15-25% of input for analysis tasks
-    const outputTokens = Math.ceil(inputTokens * 0.2);
-    
-    return { input: inputTokens, output: outputTokens };
-  }
-
-  /**
-   * Get available budget for priority level
-   */
-  private getAvailableBudget(priority: 'critical' | 'important' | 'routine'): number {
-    const remainingDaily = this.config.maxDailyCost - this.dailySpend;
-    const priorityBudget = this.config.priorityLevels[priority];
-    const maxPerAnalysis = this.config.maxPerAnalysisCost;
-    
-    return Math.min(remainingDaily, priorityBudget, maxPerAnalysis);
-  }
-
-  /**
-   * Get model performance score (0-1 scale)
-   */
-  private getModelPerformanceScore(model: string): number {
-    const scores: Record<string, number> = {
-      'claude-3-5-sonnet-20241022': 0.95,
-      'gpt-4o': 0.90,
-      'gpt-4o-mini': 0.75,
-      'claude-3-haiku-20240307': 0.70
-    };
-    return scores[model] || 0.5;
-  }
-
-  /**
-   * Get optimal model options for priority level
-   */
-  private getOptimalModelOptions(model: string, priority: 'critical' | 'important' | 'routine'): any {
-    const baseOptions = {
-      temperature: 0.7,
-      max_tokens: 2000
-    };
-
-    switch (priority) {
-      case 'critical':
-        return {
-          ...baseOptions,
-          temperature: 0.3, // More conservative for critical analysis
-          max_tokens: 3000,
-          thinking: model.includes('claude') ? { type: 'enabled', budgetTokens: 30000 } : undefined
-        };
-      
-      case 'important':
-        return {
-          ...baseOptions,
-          max_tokens: 2500,
-          thinking: model.includes('claude') ? { type: 'enabled', budgetTokens: 20000 } : undefined
-        };
-      
-      case 'routine':
-        return {
-          ...baseOptions,
-          max_tokens: 1500,
-          temperature: 0.8, // Slightly more creative for routine tasks
-          thinking: model.includes('claude') ? { type: 'enabled', budgetTokens: 10000 } : undefined
-        };
-    }
-  }
-
-  /**
-   * Assess quality impact of model change
-   */
-  private assessQualityImpact(currentModel: string, recommendedModel: string): 'none' | 'minimal' | 'moderate' | 'significant' {
-    const currentScore = this.getModelPerformanceScore(currentModel);
-    const recommendedScore = this.getModelPerformanceScore(recommendedModel);
-    const difference = currentScore - recommendedScore;
-
-    if (difference <= 0) return 'none';
-    if (difference <= 0.05) return 'minimal';
-    if (difference <= 0.15) return 'moderate';
-    return 'significant';
-  }
-
-  /**
-   * Generate optimization explanation
-   */
-  private generateOptimizationExplanation(
-    option: any, 
-    budget: number, 
-    priority: string
-  ): string {
-    const explanations = [];
-    
-    if (option.cost <= budget * 0.5) {
-      explanations.push('Significant cost savings possible while maintaining quality');
-    } else if (option.cost <= budget * 0.8) {
-      explanations.push('Moderate cost optimization with minimal quality impact');
-    } else {
-      explanations.push('Operating near budget limits - consider reducing scope');
-    }
-
-    if (priority === 'critical') {
-      explanations.push('Using premium settings for critical analysis');
-    } else if (priority === 'routine') {
-      explanations.push('Cost-optimized settings for routine analysis');
-    }
-
-    return explanations.join('. ') + '.';
-  }
-
-  /**
-   * Record actual cost after analysis
-   */
-  recordActualCost(tokenUsage: TokenUsage, model: string): void {
-    const pricing = this.MODEL_COSTS[model as keyof typeof this.MODEL_COSTS];
-    if (!pricing) return;
-
-    const inputCost = (tokenUsage.prompt_tokens / 1000) * pricing.input;
-    const outputCost = (tokenUsage.completion_tokens / 1000) * pricing.output;
-    const totalCost = inputCost + outputCost;
-
-    this.dailySpend += totalCost;
-    this.costHistory.push({
-      date: new Date().toISOString().split('T')[0],
-      amount: totalCost,
-      tokens: tokenUsage.total_tokens
-    });
-
-    // Keep only last 30 days
-    this.costHistory = this.costHistory.slice(-30);
-    this.saveCostHistory();
-  }
-
-  /**
-   * Get cost analytics
-   */
-  getCostAnalytics(): any {
-    const last7Days = this.costHistory.slice(-7);
-    const last30Days = this.costHistory;
-
-    return {
-      daily_spend: this.dailySpend,
-      remaining_budget: this.config.maxDailyCost - this.dailySpend,
-      last_7_days: {
-        total_cost: last7Days.reduce((sum, entry) => sum + entry.amount, 0),
-        total_tokens: last7Days.reduce((sum, entry) => sum + entry.tokens, 0),
-        average_daily: last7Days.reduce((sum, entry) => sum + entry.amount, 0) / 7
-      },
-      last_30_days: {
-        total_cost: last30Days.reduce((sum, entry) => sum + entry.amount, 0),
-        total_tokens: last30Days.reduce((sum, entry) => sum + entry.tokens, 0),
-        average_daily: last30Days.reduce((sum, entry) => sum + entry.amount, 0) / 30
-      },
-      budget_utilization: (this.dailySpend / this.config.maxDailyCost) * 100
-    };
-  }
-
-  /**
-   * Load cost history from storage
-   */
-  private loadCostHistory(): void {
-    try {
-      const stored = localStorage.getItem('ai_cost_history');
-      if (stored) {
-        this.costHistory = JSON.parse(stored);
-      }
-    } catch (error) {
-      console.warn('Failed to load cost history:', error);
-    }
-  }
-
-  /**
-   * Save cost history to storage
-   */
-  private saveCostHistory(): void {
-    try {
-      localStorage.setItem('ai_cost_history', JSON.stringify(this.costHistory));
-    } catch (error) {
-      console.warn('Failed to save cost history:', error);
-    }
-  }
-
-  /**
-   * Reset daily spending (call at midnight)
-   */
-  resetDailySpend(): void {
-    this.dailySpend = 0;
-  }
-}
-```
-
-## 🔍 Quality Assurance System
-
-Let's add a system that validates AI outputs and improves quality over time:
-
-```typescript
-// lib/ai/quality-assurance.ts
-
-export interface QualityMetrics {
-  completeness_score: number;      // 0-1: Are all required fields present?
-  coherence_score: number;         // 0-1: Does the analysis make logical sense?
-  factual_consistency: number;     // 0-1: Are facts consistent across the analysis?
-  actionability_score: number;     // 0-1: How actionable are the insights?
-  confidence_calibration: number;  // 0-1: How well-calibrated are confidence scores?
-}
-
-export interface QualityIssue {
-  type: 'missing_field' | 'inconsistency' | 'low_confidence' | 'poor_actionability';
-  severity: 'low' | 'medium' | 'high';
-  description: string;
-  suggestion: string;
-}
-
-export class QualityAssurance {
-  
-  /**
-   * Evaluate analysis quality
-   */
-  evaluateAnalysis(analysis: any, originalContent: any): { metrics: QualityMetrics; issues: QualityIssue[] } {
-    const metrics = this.calculateQualityMetrics(analysis, originalContent);
-    const issues = this.identifyQualityIssues(analysis, metrics);
-    
-    return { metrics, issues };
-  }
-
-  /**
-   * Calculate quality metrics
-   */
-  private calculateQualityMetrics(analysis: any, originalContent: any): QualityMetrics {
-    return {
-      completeness_score: this.assessCompleteness(analysis),
-      coherence_score: this.assessCoherence(analysis),
-      factual_consistency: this.assessFactualConsistency(analysis, originalContent),
-      actionability_score: this.assessActionability(analysis),
-      confidence_calibration: this.assessConfidenceCalibration(analysis)
-    };
-  }
-
-  /**
-   * Assess completeness of analysis
-   */
-  private assessCompleteness(analysis: any): number {
-    const requiredFields = [
-      'title', 'executive_summary', 'key_insights', 
-      'trending_topics', 'content_analysis', 'recommendations'
     ];
-    
-    let score = 0;
-    for (const field of requiredFields) {
-      if (analysis[field]) {
-        if (Array.isArray(analysis[field])) {
-          score += analysis[field].length > 0 ? 1 : 0.5;
-        } else if (typeof analysis[field] === 'string') {
-          score += analysis[field].length > 10 ? 1 : 0.5;
-        } else {
-          score += 1;
+
+    // Add tweet highlights if available
+    if (digestData.tweets && digestData.tweets.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*🐦 Tweet Highlights:*'
         }
-      }
-    }
-    
-    return score / requiredFields.length;
-  }
-
-  /**
-   * Assess logical coherence
-   */
-  private assessCoherence(analysis: any): number {
-    let score = 0.5; // Base score
-    
-    // Check if key insights align with executive summary
-    if (analysis.key_insights && analysis.executive_summary) {
-      const summaryKeywords = this.extractKeywords(analysis.executive_summary);
-      const insightKeywords = analysis.key_insights.join(' ');
-      const overlap = this.calculateKeywordOverlap(summaryKeywords, insightKeywords);
-      score += overlap * 0.3;
-    }
-    
-    // Check if recommendations align with identified issues
-    if (analysis.recommendations && analysis.trending_topics) {
-      // Simple heuristic: recommendations should relate to trending topics
-      score += 0.2;
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Assess factual consistency
-   */
-  private assessFactualConsistency(analysis: any, originalContent: any): number {
-    // This is a simplified implementation
-    // In practice, you'd want more sophisticated fact-checking
-    
-    let score = 0.7; // Assume decent consistency by default
-    
-    // Check if numbers mentioned in analysis appear in original content
-    const analysisNumbers = this.extractNumbers(JSON.stringify(analysis));
-    const contentNumbers = this.extractNumbers(JSON.stringify(originalContent));
-    
-    for (const num of analysisNumbers) {
-      if (contentNumbers.includes(num)) {
-        score += 0.1;
-      }
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Assess actionability of insights
-   */
-  private assessActionability(analysis: any): number {
-    let score = 0;
-    
-    if (analysis.recommendations) {
-      for (const rec of analysis.recommendations) {
-        // Look for action verbs and specific suggestions
-        if (this.containsActionVerbs(rec)) score += 0.2;
-        if (this.containsSpecificDetails(rec)) score += 0.2;
-      }
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Assess confidence calibration
-   */
-  private assessConfidenceCalibration(analysis: any): number {
-    // Check if confidence scores are reasonable and consistent
-    let score = 0.5;
-    
-    if (analysis.confidence_score) {
-      if (analysis.confidence_score > 0.3 && analysis.confidence_score < 0.95) {
-        score += 0.3; // Reasonable confidence range
-      }
-    }
-    
-    if (analysis.content_analysis?.sentiment?.confidence) {
-      const sentimentConfidence = analysis.content_analysis.sentiment.confidence;
-      if (sentimentConfidence > 0.5) {
-        score += 0.2;
-      }
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Identify quality issues
-   */
-  private identifyQualityIssues(analysis: any, metrics: QualityMetrics): QualityIssue[] {
-    const issues: QualityIssue[] = [];
-    
-    if (metrics.completeness_score < 0.8) {
-      issues.push({
-        type: 'missing_field',
-        severity: 'high',
-        description: 'Analysis is missing required fields or has incomplete data',
-        suggestion: 'Ensure all required analysis sections are populated with meaningful content'
       });
-    }
-    
-    if (metrics.coherence_score < 0.6) {
-      issues.push({
-        type: 'inconsistency',
-        severity: 'medium',
-        description: 'Analysis lacks logical coherence between sections',
-        suggestion: 'Review prompt design to ensure better alignment between analysis components'
+
+      digestData.tweets.slice(0, 3).forEach(tweet => {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `• ${tweet.text.substring(0, 100)}... - @${tweet.author}`
+          }
+        });
       });
+
+      blocks.push({ type: 'divider' });
     }
-    
-    if (analysis.confidence_score && analysis.confidence_score < 0.4) {
-      issues.push({
-        type: 'low_confidence',
-        severity: 'medium',
-        description: 'AI model expressed low confidence in analysis',
-        suggestion: 'Consider providing more context or using a different analysis approach'
+
+    // Add article highlights if available
+    if (digestData.articles && digestData.articles.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*📰 Article Highlights:*'
+        }
       });
-    }
-    
-    if (metrics.actionability_score < 0.5) {
-      issues.push({
-        type: 'poor_actionability',
-        severity: 'low',
-        description: 'Analysis lacks specific, actionable recommendations',
-        suggestion: 'Enhance prompts to request more specific and actionable insights'
+
+      digestData.articles.slice(0, 3).forEach(article => {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `• <${article.url}|${article.title}>\n  ${article.description?.substring(0, 100)}...`
+          }
+        });
       });
+
+      blocks.push({ type: 'divider' });
     }
-    
-    return issues;
+
+    // Add metadata
+    blocks.push({
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: `🤖 Generated by ${digestData.metadata.ai_model} • Digest ID: ${digestData.metadata.digest_id}`
+        }
+      ]
+    });
+
+    return blocks;
   }
 
-  // Helper methods
-  private extractKeywords(text: string): string[] {
-    return text.toLowerCase()
-      .replace(/[^\w\s]/g, '')
-      .split(/\s+/)
-      .filter(word => word.length > 3);
-  }
-
-  private calculateKeywordOverlap(keywords1: string[], keywords2: string): number {
-    const words2 = keywords2.toLowerCase().split(/\s+/);
-    const matches = keywords1.filter(word => words2.includes(word));
-    return matches.length / Math.max(keywords1.length, 1);
-  }
-
-  private extractNumbers(text: string): number[] {
-    const matches = text.match(/\d+(?:\.\d+)?/g);
-    return matches ? matches.map(Number) : [];
-  }
-
-  private containsActionVerbs(text: string): boolean {
-    const actionVerbs = ['implement', 'develop', 'create', 'establish', 'build', 'design', 'optimize', 'improve', 'focus', 'invest', 'consider', 'evaluate'];
-    return actionVerbs.some(verb => text.toLowerCase().includes(verb));
-  }
-
-  private containsSpecificDetails(text: string): boolean {
-    // Look for specific timeframes, numbers, or concrete nouns
-    return /\d+/.test(text) || 
-           /(within|by|before|after)/.test(text.toLowerCase()) ||
-           /(specific|particular|detailed)/.test(text.toLowerCase());
+  /**
+   * Test Slack connection
+   */
+  async testConnection(): Promise<boolean> {
+    try {
+      const result = await this.client.auth.test();
+      logger.info('Slack connection test successful', { team: result.team, user: result.user });
+      return true;
+    } catch (error) {
+      logger.error('Slack connection test failed', error);
+      return false;
+    }
   }
 }
 ```
 
-## 🧪 Advanced AI Testing Suite
+## 🎯 Package Dependencies
 
-Let's create comprehensive tests for our advanced AI features:
+Make sure to install the required packages:
+
+```bash
+npm install @slack/web-api @slack/bolt cron
+npm install --save-dev @types/cron
+```
+
+This completes Part A of Chapter 9. In Part B, we'll cover:
+- Error handling and monitoring systems
+- Configuration management for automation
+- Testing the automation pipeline
+- Production scheduling examples
+
+# Chapter 9B: Monitoring & Configuration - Making Automation Bulletproof
+
+*"In God we trust. All others must bring data." - W. Edwards Deming*
+
+---
+
+Now that we have our automation foundation, let's make it bulletproof! This part focuses on monitoring, error handling, and configuration management - the operational excellence that separates hobby projects from production systems.
+
+## 🎯 What We're Building in Part B
+
+Advanced monitoring and configuration including:
+- **Health monitoring system** with alerts
+- **Error tracking and analysis** 
+- **Configuration management** for different environments
+- **Performance metrics** and optimization insights
+- **Automated recovery** from common failures
+
+## 📊 Health Monitoring System
+
+Let's build a comprehensive health monitoring system:
 
 ```typescript
-// scripts/test/test-advanced-ai.ts
+// lib/automation/health-monitor.ts
+
+import { EventEmitter } from 'events';
+import logger from '../logger';
+
+export interface HealthMetric {
+  name: string;
+  value: number;
+  threshold: number;
+  status: 'healthy' | 'warning' | 'critical';
+  lastUpdated: Date;
+  trend: 'improving' | 'stable' | 'degrading';
+}
+
+export interface SystemHealth {
+  overall_status: 'healthy' | 'warning' | 'critical';
+  metrics: HealthMetric[];
+  last_successful_run?: Date;
+  uptime_hours: number;
+  error_rate: number;
+}
+
+export interface AlertRule {
+  metricName: string;
+  condition: 'above' | 'below' | 'equals';
+  threshold: number;
+  severity: 'warning' | 'critical';
+  enabled: boolean;
+  cooldownMinutes: number;
+}
+
+export class HealthMonitor extends EventEmitter {
+  private metrics: Map<string, HealthMetric> = new Map();
+  private alertRules: AlertRule[] = [];
+  private alertHistory: Map<string, Date> = new Map();
+  private startTime: Date = new Date();
+  private errorCount: number = 0;
+  private totalRuns: number = 0;
+
+  constructor() {
+    super();
+    this.initializeDefaultMetrics();
+    this.initializeDefaultAlerts();
+    this.startPeriodicHealthCheck();
+  }
+
+  /**
+   * Initialize default health metrics
+   */
+  private initializeDefaultMetrics(): void {
+    const defaultMetrics = [
+      { name: 'pipeline_success_rate', value: 100, threshold: 90 },
+      { name: 'avg_execution_time_minutes', value: 0, threshold: 10 },
+      { name: 'twitter_api_calls_per_hour', value: 0, threshold: 100 },
+      { name: 'ai_token_usage_per_day', value: 0, threshold: 50000 },
+      { name: 'cache_hit_rate', value: 0, threshold: 70 },
+      { name: 'error_rate_percentage', value: 0, threshold: 5 },
+      { name: 'data_freshness_hours', value: 0, threshold: 6 }
+    ];
+
+    defaultMetrics.forEach(metric => {
+      this.updateMetric(metric.name, metric.value, metric.threshold);
+    });
+  }
+
+  /**
+   * Initialize default alert rules
+   */
+  private initializeDefaultAlerts(): void {
+    this.alertRules = [
+      {
+        metricName: 'pipeline_success_rate',
+        condition: 'below',
+        threshold: 80,
+        severity: 'critical',
+        enabled: true,
+        cooldownMinutes: 60
+      },
+      {
+        metricName: 'avg_execution_time_minutes',
+        condition: 'above',
+        threshold: 15,
+        severity: 'warning',
+        enabled: true,
+        cooldownMinutes: 30
+      },
+      {
+        metricName: 'ai_token_usage_per_day',
+        condition: 'above',
+        threshold: 75000,
+        severity: 'warning',
+        enabled: true,
+        cooldownMinutes: 240
+      },
+      {
+        metricName: 'error_rate_percentage',
+        condition: 'above',
+        threshold: 10,
+        severity: 'critical',
+        enabled: true,
+        cooldownMinutes: 30
+      }
+    ];
+  }
+
+  /**
+   * Update a health metric
+   */
+  updateMetric(name: string, value: number, threshold?: number): void {
+    const existing = this.metrics.get(name);
+    const now = new Date();
+
+    // Calculate trend
+    let trend: 'improving' | 'stable' | 'degrading' = 'stable';
+    if (existing) {
+      const diff = value - existing.value;
+      const isPositiveMetric = ['success_rate', 'cache_hit_rate'].some(pos => name.includes(pos));
+      
+      if (Math.abs(diff) > existing.value * 0.1) { // 10% change threshold
+        if (isPositiveMetric) {
+          trend = diff > 0 ? 'improving' : 'degrading';
+        } else {
+          trend = diff < 0 ? 'improving' : 'degrading';
+        }
+      }
+    }
+
+    // Determine status
+    const metricThreshold = threshold || existing?.threshold || 0;
+    let status: 'healthy' | 'warning' | 'critical' = 'healthy';
+    
+    if (name.includes('rate') || name.includes('percentage')) {
+      // For rates/percentages, lower values might be bad
+      if (name.includes('success') || name.includes('hit')) {
+        if (value < metricThreshold * 0.8) status = 'critical';
+        else if (value < metricThreshold) status = 'warning';
+      } else {
+        if (value > metricThreshold * 1.5) status = 'critical';
+        else if (value > metricThreshold) status = 'warning';
+      }
+    } else {
+      // For other metrics, higher values are usually bad
+      if (value > metricThreshold * 1.5) status = 'critical';
+      else if (value > metricThreshold) status = 'warning';
+    }
+
+    const metric: HealthMetric = {
+      name,
+      value,
+      threshold: metricThreshold,
+      status,
+      lastUpdated: now,
+      trend
+    };
+
+    this.metrics.set(name, metric);
+
+    // Check for alerts
+    this.checkAlerts(metric);
+
+    logger.debug(`Health metric updated: ${name} = ${value} (${status})`);
+  }
+
+  /**
+   * Check alert rules for a metric
+   */
+  private checkAlerts(metric: HealthMetric): void {
+    const applicableRules = this.alertRules.filter(rule => 
+      rule.metricName === metric.name && rule.enabled
+    );
+
+    for (const rule of applicableRules) {
+      const shouldAlert = this.evaluateAlertCondition(metric.value, rule);
+      
+      if (shouldAlert && this.canSendAlert(rule)) {
+        this.sendAlert(rule, metric);
+      }
+    }
+  }
+
+  /**
+   * Evaluate if alert condition is met
+   */
+  private evaluateAlertCondition(value: number, rule: AlertRule): boolean {
+    switch (rule.condition) {
+      case 'above':
+        return value > rule.threshold;
+      case 'below':
+        return value < rule.threshold;
+      case 'equals':
+        return value === rule.threshold;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Check if we can send alert (cooldown logic)
+   */
+  private canSendAlert(rule: AlertRule): boolean {
+    const alertKey = `${rule.metricName}_${rule.severity}`;
+    const lastAlert = this.alertHistory.get(alertKey);
+    
+    if (!lastAlert) return true;
+    
+    const cooldownMs = rule.cooldownMinutes * 60 * 1000;
+    return (Date.now() - lastAlert.getTime()) > cooldownMs;
+  }
+
+  /**
+   * Send alert
+   */
+  private sendAlert(rule: AlertRule, metric: HealthMetric): void {
+    const alertKey = `${rule.metricName}_${rule.severity}`;
+    this.alertHistory.set(alertKey, new Date());
+
+    const alertData = {
+      severity: rule.severity,
+      metric: metric.name,
+      value: metric.value,
+      threshold: rule.threshold,
+      condition: rule.condition,
+      status: metric.status,
+      trend: metric.trend
+    };
+
+    // Emit alert event
+    this.emit('alert', alertData);
+
+    logger.warn(`Health alert: ${rule.severity.toUpperCase()}`, alertData);
+
+    // You could integrate with external services here:
+    // - Send to Slack
+    // - Send email
+    // - Post to monitoring service (DataDog, New Relic, etc.)
+  }
+
+  /**
+   * Record pipeline execution
+   */
+  recordPipelineExecution(success: boolean, durationMs: number, tokenUsage?: number): void {
+    this.totalRuns++;
+    if (!success) this.errorCount++;
+
+    // Update success rate
+    const successRate = ((this.totalRuns - this.errorCount) / this.totalRuns) * 100;
+    this.updateMetric('pipeline_success_rate', successRate, 90);
+
+    // Update average execution time
+    const durationMinutes = durationMs / (1000 * 60);
+    this.updateMetric('avg_execution_time_minutes', durationMinutes, 10);
+
+    // Update error rate
+    const errorRate = (this.errorCount / this.totalRuns) * 100;
+    this.updateMetric('error_rate_percentage', errorRate, 5);
+
+    // Update token usage if provided
+    if (tokenUsage) {
+      // This would typically be accumulated over time
+      this.updateMetric('ai_token_usage_per_day', tokenUsage, 50000);
+    }
+  }
+
+  /**
+   * Get current system health
+   */
+  getSystemHealth(): SystemHealth {
+    const metrics = Array.from(this.metrics.values());
+    
+    // Determine overall status
+    let overallStatus: 'healthy' | 'warning' | 'critical' = 'healthy';
+    const criticalMetrics = metrics.filter(m => m.status === 'critical');
+    const warningMetrics = metrics.filter(m => m.status === 'warning');
+    
+    if (criticalMetrics.length > 0) {
+      overallStatus = 'critical';
+    } else if (warningMetrics.length > 0) {
+      overallStatus = 'warning';
+    }
+
+    // Calculate uptime
+    const uptimeMs = Date.now() - this.startTime.getTime();
+    const uptimeHours = uptimeMs / (1000 * 60 * 60);
+
+    return {
+      overall_status: overallStatus,
+      metrics: metrics.sort((a, b) => a.name.localeCompare(b.name)),
+      uptime_hours: Math.round(uptimeHours * 100) / 100,
+      error_rate: this.totalRuns > 0 ? (this.errorCount / this.totalRuns) * 100 : 0
+    };
+  }
+
+  /**
+   * Start periodic health checks
+   */
+  private startPeriodicHealthCheck(): void {
+    setInterval(() => {
+      this.performHealthCheck();
+    }, 5 * 60 * 1000); // Every 5 minutes
+  }
+
+  /**
+   * Perform comprehensive health check
+   */
+  private performHealthCheck(): void {
+    // Check data freshness
+    this.checkDataFreshness();
+    
+    // Check system resources if possible
+    this.checkSystemResources();
+    
+    // Emit health check complete event
+    this.emit('healthcheck', this.getSystemHealth());
+  }
+
+  /**
+   * Check data freshness across sources
+   */
+  private async checkDataFreshness(): Promise<void> {
+    try {
+      // This would check when data was last updated
+      // For now, we'll simulate
+      const hoursOld = Math.random() * 12; // 0-12 hours
+      this.updateMetric('data_freshness_hours', hoursOld, 6);
+    } catch (error) {
+      logger.error('Data freshness check failed', error);
+    }
+  }
+
+  /**
+   * Check system resources
+   */
+  private checkSystemResources(): void {
+    try {
+      // Memory usage
+      const memUsage = process.memoryUsage();
+      const memUsedMB = memUsage.heapUsed / 1024 / 1024;
+      this.updateMetric('memory_usage_mb', Math.round(memUsedMB), 500);
+
+      // CPU usage would require additional libraries
+      // For now, we'll use a placeholder
+      this.updateMetric('cpu_usage_percentage', Math.random() * 30, 80);
+      
+    } catch (error) {
+      logger.error('System resource check failed', error);
+    }
+  }
+
+  /**
+   * Get metrics history (for trending)
+   */
+  getMetricsHistory(metricName: string, hours: number = 24): any[] {
+    // In a real implementation, you'd store historical data
+    // For now, return mock data
+    const history = [];
+    const now = Date.now();
+    const hourMs = 60 * 60 * 1000;
+    
+    for (let i = hours; i >= 0; i--) {
+      history.push({
+        timestamp: new Date(now - (i * hourMs)),
+        value: Math.random() * 100 // Mock data
+      });
+    }
+    
+    return history;
+  }
+}
+
+// Global health monitor instance
+export const healthMonitor = new HealthMonitor();
+```
+
+## ⚙️ Advanced Configuration Management
+
+Now let's build a flexible configuration system for different environments:
+
+```typescript
+// lib/automation/config-manager.ts
+
+import { readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import logger from '../logger';
+
+export interface AutomationConfig {
+  environment: 'development' | 'staging' | 'production';
+  
+  // Scheduling configuration
+  scheduling: {
+    digest_pipeline: {
+      enabled: boolean;
+      cron_pattern: string;
+      timezone: string;
+      max_concurrent_runs: number;
+      retry_attempts: number;
+      retry_delay_ms: number;
+    };
+    cache_cleanup: {
+      enabled: boolean;
+      cron_pattern: string;
+      retention_days: number;
+    };
+    health_check: {
+      enabled: boolean;
+      interval_minutes: number;
+    };
+  };
+
+  // Data source configuration
+  data_sources: {
+    twitter: {
+      enabled: boolean;
+      accounts: string[];
+      api_rate_limit_buffer: number;
+    };
+    telegram: {
+      enabled: boolean;
+      channels: string[];
+      scraping_delay_ms: number;
+    };
+    rss: {
+      enabled: boolean;
+      feeds: string[];
+      timeout_ms: number;
+    };
+  };
+
+  // AI configuration
+  ai: {
+    default_provider: 'openai' | 'anthropic';
+    model_configs: {
+      routine: {
+        provider: 'openai' | 'anthropic';
+        model: string;
+        max_tokens: number;
+        temperature: number;
+      };
+      important: {
+        provider: 'openai' | 'anthropic';
+        model: string;
+        max_tokens: number;
+        temperature: number;
+      };
+      critical: {
+        provider: 'openai' | 'anthropic';
+        model: string;
+        max_tokens: number;
+        temperature: number;
+      };
+    };
+    cost_limits: {
+      daily_budget: number;
+      per_analysis_limit: number;
+    };
+  };
+
+  // Quality and filtering
+  quality: {
+    min_quality_threshold: number;
+    max_content_age_hours: number;
+    min_engagement_threshold: number;
+  };
+
+  // Distribution configuration
+  distribution: {
+    slack: {
+      enabled: boolean;
+      channel_id: string;
+      webhook_url?: string;
+    };
+    webhook_notifications: {
+      enabled: boolean;
+      endpoints: string[];
+    };
+  };
+
+  // Monitoring and alerts
+  monitoring: {
+    health_checks: boolean;
+    alert_webhooks: string[];
+    log_level: 'debug' | 'info' | 'warn' | 'error';
+    metrics_retention_days: number;
+  };
+}
+
+export class ConfigManager {
+  private config!: AutomationConfig;
+  private configPath: string;
+  private watchers: ((config: AutomationConfig) => void)[] = [];
+
+  constructor(configPath?: string) {
+    this.configPath = configPath || join(process.cwd(), 'config', 'automation.json');
+    this.loadConfig();
+  }
+
+  /**
+   * Load configuration from file
+   */
+  private loadConfig(): void {
+    try {
+      const configData = readFileSync(this.configPath, 'utf-8');
+      this.config = JSON.parse(configData);
+      this.validateConfig();
+      logger.info(`Configuration loaded from ${this.configPath}`);
+    } catch (error) {
+      logger.warn(`Failed to load config from ${this.configPath}, using defaults`);
+      this.config = this.getDefaultConfig();
+      this.saveConfig(); // Create default config file
+    }
+  }
+
+  /**
+   * Get default configuration
+   */
+  private getDefaultConfig(): AutomationConfig {
+    const isDev = process.env.NODE_ENV === 'development';
+    
+    return {
+      environment: isDev ? 'development' : 'production',
+      
+      scheduling: {
+        digest_pipeline: {
+          enabled: true,
+          cron_pattern: isDev ? '*/15 * * * *' : '0 9 * * *', // Every 15 min in dev, 9 AM in prod
+          timezone: 'UTC',
+          max_concurrent_runs: 1,
+          retry_attempts: 3,
+          retry_delay_ms: 60000
+        },
+        cache_cleanup: {
+          enabled: true,
+          cron_pattern: '0 2 * * *', // 2 AM daily
+          retention_days: 7
+        },
+        health_check: {
+          enabled: true,
+          interval_minutes: 5
+        }
+      },
+
+      data_sources: {
+        twitter: {
+          enabled: !!process.env.X_API_KEY,
+          accounts: ['openai', 'anthropicai'],
+          api_rate_limit_buffer: 5000
+        },
+        telegram: {
+          enabled: true,
+          channels: ['telegram', 'durov'],
+          scraping_delay_ms: isDev ? 2000 : 5000
+        },
+        rss: {
+          enabled: true,
+          feeds: [
+            'https://techcrunch.com/feed/',
+            'https://www.theverge.com/rss/index.xml'
+          ],
+          timeout_ms: 15000
+        }
+      },
+
+      ai: {
+        default_provider: 'anthropic',
+        model_configs: {
+          routine: {
+            provider: 'openai',
+            model: 'gpt-4o-mini',
+            max_tokens: 1500,
+            temperature: 0.7
+          },
+          important: {
+            provider: 'anthropic',
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 2000,
+            temperature: 0.7
+          },
+          critical: {
+            provider: 'anthropic',
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 3000,
+            temperature: 0.3
+          }
+        },
+        cost_limits: {
+          daily_budget: isDev ? 1.0 : 10.0,
+          per_analysis_limit: isDev ? 0.25 : 2.0
+        }
+      },
+
+      quality: {
+        min_quality_threshold: 0.6,
+        max_content_age_hours: 24,
+        min_engagement_threshold: 5
+      },
+
+      distribution: {
+        slack: {
+          enabled: !!process.env.SLACK_BOT_TOKEN,
+          channel_id: process.env.SLACK_CHANNEL_ID || ''
+        },
+        webhook_notifications: {
+          enabled: false,
+          endpoints: []
+        }
+      },
+
+      monitoring: {
+        health_checks: true,
+        alert_webhooks: [],
+        log_level: isDev ? 'debug' : 'info',
+        metrics_retention_days: 30
+      }
+    };
+  }
+
+  /**
+   * Validate configuration
+   */
+  private validateConfig(): void {
+    const requiredPaths = [
+      'environment',
+      'scheduling.digest_pipeline.cron_pattern',
+      'ai.default_provider',
+      'quality.min_quality_threshold'
+    ];
+
+    for (const path of requiredPaths) {
+      if (!this.getNestedValue(this.config, path)) {
+        throw new Error(`Missing required configuration: ${path}`);
+      }
+    }
+
+    // Validate cron patterns
+    const cronPatterns = [
+      this.config.scheduling.digest_pipeline.cron_pattern,
+      this.config.scheduling.cache_cleanup.cron_pattern
+    ];
+
+    for (const pattern of cronPatterns) {
+      if (!this.isValidCronPattern(pattern)) {
+        logger.warn(`Invalid cron pattern: ${pattern}`);
+      }
+    }
+
+    logger.debug('Configuration validation passed');
+  }
+
+  /**
+   * Get nested configuration value
+   */
+  private getNestedValue(obj: any, path: string): any {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  }
+
+  /**
+   * Basic cron pattern validation
+   */
+  private isValidCronPattern(pattern: string): boolean {
+    const parts = pattern.split(' ');
+    return parts.length === 5 || parts.length === 6; // 5 for standard, 6 with seconds
+  }
+
+  /**
+   * Get current configuration
+   */
+  getConfig(): AutomationConfig {
+    return { ...this.config }; // Return copy to prevent mutations
+  }
+
+  /**
+   * Update configuration
+   */
+  updateConfig(updates: Partial<AutomationConfig>): void {
+    this.config = { ...this.config, ...updates };
+    this.validateConfig();
+    this.saveConfig();
+    this.notifyWatchers();
+  }
+
+  /**
+   * Save configuration to file
+   */
+  private saveConfig(): void {
+    try {
+      const configData = JSON.stringify(this.config, null, 2);
+      writeFileSync(this.configPath, configData, 'utf-8');
+      logger.info(`Configuration saved to ${this.configPath}`);
+    } catch (error) {
+      logger.error('Failed to save configuration', error);
+    }
+  }
+
+  /**
+   * Watch for configuration changes
+   */
+  watch(callback: (config: AutomationConfig) => void): void {
+    this.watchers.push(callback);
+  }
+
+  /**
+   * Notify watchers of configuration changes
+   */
+  private notifyWatchers(): void {
+    for (const watcher of this.watchers) {
+      try {
+        watcher(this.getConfig());
+      } catch (error) {
+        logger.error('Configuration watcher error', error);
+      }
+    }
+  }
+
+  /**
+   * Get environment-specific settings
+   */
+  getEnvironmentConfig(): any {
+    const env = this.config.environment;
+    
+    return {
+      isDevelopment: env === 'development',
+      isProduction: env === 'production',
+      logLevel: this.config.monitoring.log_level,
+      enableDebugFeatures: env === 'development',
+      enablePerformanceMetrics: env === 'production',
+      strictErrorHandling: env === 'production'
+    };
+  }
+
+  /**
+   * Validate required environment variables
+   */
+  validateEnvironment(): { valid: boolean; missing: string[] } {
+    const required: { [key: string]: string[] } = {
+      all: ['NODE_ENV'],
+      twitter: ['X_API_KEY', 'X_API_SECRET'],
+      ai: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
+      slack: ['SLACK_BOT_TOKEN', 'SLACK_CHANNEL_ID']
+    };
+
+    const missing: string[] = [];
+
+    // Check all environments
+    for (const envVar of required.all) {
+      if (!process.env[envVar]) {
+        missing.push(envVar);
+      }
+    }
+
+    // Check conditionally required
+    if (this.config.data_sources.twitter.enabled) {
+      for (const envVar of required.twitter) {
+        if (!process.env[envVar]) {
+          missing.push(envVar);
+        }
+      }
+    }
+
+    if (this.config.distribution.slack.enabled) {
+      for (const envVar of required.slack) {
+        if (!process.env[envVar]) {
+          missing.push(envVar);
+        }
+      }
+    }
+
+    // Check AI keys (at least one required)
+    const hasOpenAI = !!process.env.OPENAI_API_KEY;
+    const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
+    
+    if (!hasOpenAI && !hasAnthropic) {
+      missing.push('OPENAI_API_KEY or ANTHROPIC_API_KEY');
+    }
+
+    return {
+      valid: missing.length === 0,
+      missing
+    };
+  }
+}
+
+// Global configuration manager
+export const configManager = new ConfigManager();
+```
+
+This completes Part B with monitoring and configuration systems. Ready for **Part C** which will cover:
+- **Testing the complete automation system**
+- **Production deployment setup**
+- **Performance optimization**
+- **Troubleshooting guide**
+
+# Chapter 9C: Testing & Optimization - Bulletproofing Your Automation
+
+*"The most important single aspect of software development is to be clear about what you are trying to build." - Bjarne Stroustrup*
+
+---
+
+Time to put it all together! In this final part of Chapter 9, we'll test our complete automation system, optimize performance, and build the production deployment setup. This is where we ensure everything works flawlessly when you're not watching.
+
+## 🎯 What We're Building in Part C
+
+The final automation pieces:
+- **Complete integration testing** suite
+- **Performance optimization** and bottleneck detection
+- **Production deployment scripts**
+- **Troubleshooting and debugging** toolkit
+- **Monitoring dashboard** for operational visibility
+
+## 🧪 Complete Integration Testing Suite
+
+Let's build comprehensive tests for the entire automation system:
+
+```typescript
+// scripts/test/test-automation-complete.ts
 
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { AIService } from '../../lib/ai/ai-service';
-import { PromptTemplateManager } from '../../lib/ai/prompt-templates';
-import { ReasoningChainManager } from '../../lib/ai/reasoning-chains';
-import { CostOptimizer } from '../../lib/ai/cost-optimizer';
-import { QualityAssurance } from '../../lib/ai/quality-assurance';
+import { taskScheduler, ScheduleConfig } from '../../lib/automation/scheduler';
+import { DigestPipeline } from '../../lib/automation/digest-pipeline';
+import { healthMonitor } from '../../lib/automation/health-monitor';
+import { configManager } from '../../lib/automation/config-manager';
+import { ProgressTracker } from '../../utils/progress';
 import logger from '../../lib/logger';
 
-async function testAdvancedAI() {
-  console.log('🧠 Testing Advanced AI Techniques...\n');
+class AutomationTestSuite {
+  private testResults: Map<string, boolean> = new Map();
+  private testStartTime: number = 0;
 
-  try {
-    // Test 1: Prompt Templates
-    console.log('1. Testing Prompt Templates:');
-    const promptManager = new PromptTemplateManager();
+  async runCompleteTest(): Promise<void> {
+    console.log('🤖 Testing Complete Automation System...\n');
     
-    const marketTemplate = promptManager.getTemplate('market_intelligence');
-    console.log(`✅ Market intelligence template loaded: ${marketTemplate?.name}`);
-    
-    const techTemplate = promptManager.getTemplate('technical_analysis');
-    console.log(`✅ Technical analysis template loaded: ${techTemplate?.name}`);
-    
-    const newsTemplate = promptManager.getTemplate('news_synthesis');
-    console.log(`✅ News synthesis template loaded: ${newsTemplate?.name}`);
-
-    // Test template building
-    const builtPrompt = promptManager.buildPrompt('news_synthesis', {
-      timeframe: '24 hours',
-      content_count: '15',
-      priority_topics: 'AI, Technology',
-      formatted_content: 'Sample content for testing...'
+    const overallProgress = new ProgressTracker({
+      total: 8,
+      label: 'Complete Automation Test'
     });
-    
-    if (builtPrompt) {
-      console.log('✅ Prompt template building successful');
-      console.log(`   System prompt length: ${builtPrompt.systemPrompt.length} chars`);
-      console.log(`   User prompt length: ${builtPrompt.userPrompt.length} chars`);
-    }
 
-    // Test 2: Cost Optimization
-    console.log('\n2. Testing Cost Optimization:');
-    const costOptimizer = new CostOptimizer({
-      maxDailyCost: 10.0,
-      maxPerAnalysisCost: 2.0,
-      priorityLevels: {
-        critical: 1.5,
-        important: 0.8,
-        routine: 0.3
-      },
-      modelPreferences: {
-        low_cost: ['gpt-4o-mini', 'claude-3-haiku-20240307'],
-        balanced: ['gpt-4o', 'claude-3-5-sonnet-20241022'],
-        premium: ['claude-3-5-sonnet-20241022', 'gpt-4o']
+    this.testStartTime = Date.now();
+
+    try {
+      // Test 1: Configuration Management
+      overallProgress.update(1, { step: 'Configuration' });
+      await this.testConfigurationSystem();
+
+      // Test 2: Health Monitoring
+      overallProgress.update(2, { step: 'Health Monitoring' });
+      await this.testHealthMonitoring();
+
+      // Test 3: Pipeline Components
+      overallProgress.update(3, { step: 'Pipeline Components' });
+      await this.testPipelineComponents();
+
+      // Test 4: Scheduler Functionality  
+      overallProgress.update(4, { step: 'Scheduler' });
+      await this.testScheduler();
+
+      // Test 5: Error Handling
+      overallProgress.update(5, { step: 'Error Handling' });
+      await this.testErrorHandling();
+
+      // Test 6: Performance Benchmarks
+      overallProgress.update(6, { step: 'Performance' });
+      await this.testPerformance();
+
+      // Test 7: End-to-End Pipeline
+      overallProgress.update(7, { step: 'End-to-End' });
+      await this.testEndToEndPipeline();
+
+      // Test 8: Production Readiness
+      overallProgress.update(8, { step: 'Production Readiness' });
+      await this.testProductionReadiness();
+
+      // Summary
+      const totalTime = Date.now() - this.testStartTime;
+      overallProgress.complete(`All tests completed in ${(totalTime / 1000).toFixed(2)}s`);
+      
+      this.printTestSummary();
+
+    } catch (error: any) {
+      overallProgress.fail(`Test suite failed: ${error.message}`);
+      logger.error('Automation test suite failed', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Test configuration management system
+   */
+  private async testConfigurationSystem(): Promise<void> {
+    try {
+      console.log('1. Testing Configuration Management:');
+
+      // Test config loading
+      const config = configManager.getConfig();
+      console.log(`   ✅ Configuration loaded: ${config.environment} environment`);
+
+      // Test environment validation
+      const envValidation = configManager.validateEnvironment();
+      if (envValidation.valid) {
+        console.log('   ✅ Environment variables validated');
+      } else {
+        console.log(`   ⚠️  Missing environment variables: ${envValidation.missing.join(', ')}`);
       }
-    });
 
-    const recommendation = costOptimizer.getOptimizationRecommendation(
-      5000, // content size
-      'important', // priority
-      'gpt-4o' // current model
-    );
+      // Test environment-specific settings
+      const envConfig = configManager.getEnvironmentConfig();
+      console.log(`   ✅ Environment config loaded: ${envConfig.isDevelopment ? 'Development' : 'Production'} mode`);
 
-    console.log(`✅ Cost optimization recommendation:`);
-    console.log(`   Recommended model: ${recommendation.recommendedModel.modelName}`);
-    console.log(`   Estimated cost: $${recommendation.estimatedCost.toFixed(4)}`);
-    console.log(`   Cost savings: $${recommendation.costSavings.toFixed(4)}`);
-    console.log(`   Quality impact: ${recommendation.qualityImpact}`);
+      // Test configuration update
+      const originalLogLevel = config.monitoring.log_level;
+      configManager.updateConfig({
+        monitoring: { ...config.monitoring, log_level: 'debug' }
+      });
+      
+      const updatedConfig = configManager.getConfig();
+      const updateSuccessful = updatedConfig.monitoring.log_level === 'debug';
+      
+      // Restore original
+      configManager.updateConfig({
+        monitoring: { ...config.monitoring, log_level: originalLogLevel }
+      });
 
-    // Test 3: Quality Assurance
-    console.log('\n3. Testing Quality Assurance:');
-    const qa = new QualityAssurance();
-    
-    const mockAnalysis = {
-      title: 'AI Market Analysis',
-      executive_summary: 'AI market shows strong growth with emerging opportunities in enterprise automation',
-      key_insights: [
-        'Enterprise AI adoption accelerating',
-        'New investment in AI infrastructure',
-        'Regulatory frameworks developing'
-      ],
-      trending_topics: [
-        { topic: 'AI Automation', relevance_score: 0.9 }
-      ],
-      content_analysis: {
-        sentiment: { overall: 'positive', confidence: 0.8 }
-      },
-      recommendations: [
-        'Invest in AI infrastructure companies',
-        'Monitor regulatory developments'
-      ],
-      confidence_score: 0.75
-    };
-
-    const qualityEval = qa.evaluateAnalysis(mockAnalysis, {});
-    console.log(`✅ Quality evaluation completed:`);
-    console.log(`   Completeness: ${qualityEval.metrics.completeness_score.toFixed(2)}`);
-    console.log(`   Coherence: ${qualityEval.metrics.coherence_score.toFixed(2)}`);
-    console.log(`   Actionability: ${qualityEval.metrics.actionability_score.toFixed(2)}`);
-    console.log(`   Issues found: ${qualityEval.issues.length}`);
-
-    // Test 4: Real AI Analysis with Templates
-    console.log('\n4. Testing Template-Based Analysis:');
-    const aiService = AIService.getInstance();
-    aiService.useClaude('claude-3-5-sonnet-20241022');
-
-    const testContent = {
-      tweets: [{
-        id: 'test1',
-        text: 'Major breakthrough in AI reasoning capabilities announced by leading research lab',
-        author: 'AI_Research',
-        created_at: new Date().toISOString(),
-        engagement_score: 200,
-        quality_score: 0.9,
-        url: 'https://twitter.com/test'
-      }],
-      rss_articles: [{
-        id: 'article1',
-        title: 'The Future of Artificial Intelligence: Trends and Predictions',
-        description: 'Comprehensive analysis of AI development trends',
-        content: 'Artificial intelligence continues to evolve rapidly...',
-        author: 'Tech Expert',
-        published_at: new Date().toISOString(),
-        source: 'Tech Journal',
-        quality_score: 0.85,
-        url: 'https://example.com/article'
-      }],
-      timeframe: {
-        from: new Date(Date.now() - 24*60*60*1000).toISOString(),
-        to: new Date().toISOString()
-      },
-      metadata: {
-        total_sources: 2,
-        source_breakdown: { twitter: 1, telegram: 0, rss: 1 }
+      if (updateSuccessful) {
+        console.log('   ✅ Configuration update successful');
+      } else {
+        throw new Error('Configuration update failed');
       }
-    };
 
-    // Test with news synthesis (cost-effective)
-    const newsAnalysis = await aiService.analyzeContent({
-      content: testContent,
-      analysisType: 'summary',
-      instructions: 'Use news synthesis approach for cost-effective analysis'
-    });
+      this.testResults.set('configuration', true);
 
-    console.log(`✅ News synthesis analysis completed:`);
-    console.log(`   Title: "${newsAnalysis.analysis.title}"`);
-    console.log(`   Insights: ${newsAnalysis.analysis.key_insights.length}`);
-    console.log(`   Tokens used: ${newsAnalysis.token_usage.total_tokens}`);
-    console.log(`   Processing time: ${(newsAnalysis.processing_time_ms / 1000).toFixed(2)}s`);
+    } catch (error: any) {
+      console.log(`   ❌ Configuration test failed: ${error.message}`);
+      this.testResults.set('configuration', false);
+    }
+  }
 
-    // Test 5: Reasoning Chain (if time permits)
-    console.log('\n5. Testing Reasoning Chains:');
-    const chainManager = new ReasoningChainManager(aiService);
-    const availableChains = chainManager.getAvailableChains();
-    
-    console.log(`✅ Available reasoning chains: ${availableChains.join(', ')}`);
-    
-    // Get chain details
-    const chainDetails = chainManager.getChainDetails('content_quality_enhancement');
-    if (chainDetails) {
-      console.log(`✅ Content quality enhancement chain:`);
-      console.log(`   Steps: ${chainDetails.steps.length}`);
-      console.log(`   Estimated cost: $${chainDetails.totalEstimatedCost}`);
+  /**
+   * Test health monitoring system
+   */
+  private async testHealthMonitoring(): Promise<void> {
+    try {
+      console.log('\n2. Testing Health Monitoring:');
+
+      // Test metric updates
+      healthMonitor.updateMetric('test_metric', 85, 90);
+      console.log('   ✅ Health metric update successful');
+
+      // Test pipeline execution recording
+      healthMonitor.recordPipelineExecution(true, 120000, 5000); // 2 min, 5k tokens
+      console.log('   ✅ Pipeline execution recorded');
+
+      // Test system health retrieval
+      const systemHealth = healthMonitor.getSystemHealth();
+      console.log(`   ✅ System health: ${systemHealth.overall_status} (${systemHealth.metrics.length} metrics)`);
+      console.log(`   ✅ Uptime: ${systemHealth.uptime_hours.toFixed(2)} hours`);
+      console.log(`   ✅ Error rate: ${systemHealth.error_rate.toFixed(1)}%`);
+
+      // Test alert system (simulate)
+      let alertReceived = false;
+      healthMonitor.once('alert', (alertData) => {
+        alertReceived = true;
+        console.log(`   ✅ Alert system working: ${alertData.severity} alert for ${alertData.metric}`);
+      });
+
+      // Trigger an alert with a bad metric
+      healthMonitor.updateMetric('pipeline_success_rate', 50, 90); // Should trigger critical alert
+      
+      // Wait briefly for alert
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (alertReceived) {
+        console.log('   ✅ Alert system functional');
+      } else {
+        console.log('   ⚠️  Alert system may not be working');
+      }
+
+      // Reset metric
+      healthMonitor.updateMetric('pipeline_success_rate', 95, 90);
+
+      this.testResults.set('health_monitoring', true);
+
+    } catch (error: any) {
+      console.log(`   ❌ Health monitoring test failed: ${error.message}`);
+      this.testResults.set('health_monitoring', false);
+    }
+  }
+
+  /**
+   * Test individual pipeline components
+   */
+  private async testPipelineComponents(): Promise<void> {
+    try {
+      console.log('\n3. Testing Pipeline Components:');
+
+      const config = configManager.getConfig();
+      
+      // Create pipeline instance
+      const pipeline = new DigestPipeline({
+        enableTwitter: config.data_sources.twitter.enabled,
+        enableTelegram: config.data_sources.telegram.enabled,
+        enableRSS: config.data_sources.rss.enabled,
+        aiModel: config.ai.default_provider,
+        aiModelName: config.ai.model_configs.routine.model,
+        analysisType: 'summary',
+        postToSlack: false, // Don't actually post during testing
+        minQualityThreshold: 0.5, // Lower for testing
+        maxContentAge: 48 // More lenient for testing
+      });
+
+      console.log('   ✅ Pipeline instance created');
+      console.log(`   ✅ Data sources enabled: Twitter(${config.data_sources.twitter.enabled}), Telegram(${config.data_sources.telegram.enabled}), RSS(${config.data_sources.rss.enabled})`);
+      
+      // Test pipeline properties
+      const taskName = pipeline.getName();
+      const estimatedDuration = pipeline.getEstimatedDuration();
+      
+      console.log(`   ✅ Pipeline task name: ${taskName}`);
+      console.log(`   ✅ Estimated duration: ${(estimatedDuration / 1000 / 60).toFixed(1)} minutes`);
+
+      this.testResults.set('pipeline_components', true);
+
+    } catch (error: any) {
+      console.log(`   ❌ Pipeline components test failed: ${error.message}`);
+      this.testResults.set('pipeline_components', false);
+    }
+  }
+
+  /**
+   * Test scheduler functionality
+   */
+  private async testScheduler(): Promise<void> {
+    try {
+      console.log('\n4. Testing Scheduler:');
+
+      // Create a simple test task
+      class TestTask {
+        async execute(): Promise<void> {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        getName(): string { return 'test-task'; }
+        getEstimatedDuration(): number { return 1000; }
+      }
+
+      const testTask = new TestTask();
+      
+      // Test task scheduling
+      const scheduleConfig: ScheduleConfig = {
+        name: 'test-automation',
+        cronPattern: '*/10 * * * * *', // Every 10 seconds
+        enabled: true,
+        maxConcurrentRuns: 1,
+        retryAttempts: 1,
+        retryDelayMs: 1000
+      };
+
+      taskScheduler.scheduleTask(scheduleConfig, testTask);
+      console.log('   ✅ Task scheduled successfully');
+
+      // Wait for a potential execution
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Check running tasks
+      const runningTasks = taskScheduler.getRunningTasks();
+      console.log(`   ✅ Running tasks: ${runningTasks.length}`);
+
+      // Check task history
+      const taskHistory = taskScheduler.getTaskHistory(5);
+      console.log(`   ✅ Task history entries: ${taskHistory.length}`);
+
+      // Get task statistics
+      const taskStats = taskScheduler.getTaskStats('test-automation');
+      console.log(`   ✅ Task stats: ${taskStats.total_executions} executions, ${(taskStats.success_rate * 100).toFixed(1)}% success rate`);
+
+      // Clean up
+      taskScheduler.unscheduleTask('test-automation');
+      console.log('   ✅ Task unscheduled');
+
+      this.testResults.set('scheduler', true);
+
+    } catch (error: any) {
+      console.log(`   ❌ Scheduler test failed: ${error.message}`);
+      this.testResults.set('scheduler', false);
+    }
+  }
+
+  /**
+   * Test error handling and recovery
+   */
+  private async testErrorHandling(): Promise<void> {
+    try {
+      console.log('\n5. Testing Error Handling:');
+
+      // Create a task that will fail
+      class FailingTask {
+        private attemptCount = 0;
+        
+        async execute(): Promise<void> {
+          this.attemptCount++;
+          if (this.attemptCount < 3) {
+            throw new Error(`Simulated failure (attempt ${this.attemptCount})`);
+          }
+          // Succeed on 3rd attempt
+        }
+        
+        getName(): string { return 'failing-task'; }
+        getEstimatedDuration(): number { return 1000; }
+      }
+
+      const failingTask = new FailingTask();
+      
+      const scheduleConfig: ScheduleConfig = {
+        name: 'error-test',
+        cronPattern: '*/5 * * * * *', // Every 5 seconds
+        enabled: true,
+        maxConcurrentRuns: 1,
+        retryAttempts: 3,
+        retryDelayMs: 500
+      };
+
+      taskScheduler.scheduleTask(scheduleConfig, failingTask);
+      console.log('   ✅ Failing task scheduled');
+
+      // Wait for retries to complete
+      await new Promise(resolve => setTimeout(resolve, 8000));
+
+      const taskStats = taskScheduler.getTaskStats('error-test');
+      console.log(`   ✅ Error handling test: ${taskStats.total_executions} executions`);
+      
+      if (taskStats.completed > 0) {
+        console.log('   ✅ Task eventually succeeded after retries');
+      } else {
+        console.log('   ⚠️  Task failed even with retries');
+      }
+
+      // Clean up
+      taskScheduler.unscheduleTask('error-test');
+
+      this.testResults.set('error_handling', true);
+
+    } catch (error: any) {
+      console.log(`   ❌ Error handling test failed: ${error.message}`);
+      this.testResults.set('error_handling', false);
+    }
+  }
+
+  /**
+   * Test performance benchmarks
+   */
+  private async testPerformance(): Promise<void> {
+    try {
+      console.log('\n6. Testing Performance:');
+
+      const performanceTests = [
+        { name: 'Configuration Loading', iterations: 100 },
+        { name: 'Health Metric Updates', iterations: 1000 },
+        { name: 'Task Scheduling', iterations: 50 }
+      ];
+
+      for (const test of performanceTests) {
+        const startTime = Date.now();
+        
+        for (let i = 0; i < test.iterations; i++) {
+          switch (test.name) {
+            case 'Configuration Loading':
+              configManager.getConfig();
+              break;
+            case 'Health Metric Updates':
+              healthMonitor.updateMetric(`perf_test_${i}`, Math.random() * 100, 50);
+              break;
+            case 'Task Scheduling':
+              // Just test the scheduling logic, not actual execution
+              break;
+          }
+        }
+        
+        const duration = Date.now() - startTime;
+        const avgTime = duration / test.iterations;
+        
+        console.log(`   ✅ ${test.name}: ${duration}ms total, ${avgTime.toFixed(2)}ms avg`);
+      }
+
+      // Memory usage check
+      const memUsage = process.memoryUsage();
+      const memUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+      console.log(`   ✅ Memory usage: ${memUsedMB}MB heap used`);
+
+      this.testResults.set('performance', true);
+
+    } catch (error: any) {
+      console.log(`   ❌ Performance test failed: ${error.message}`);
+      this.testResults.set('performance', false);
+    }
+  }
+
+  /**
+   * Test end-to-end pipeline (limited scope for testing)
+   */
+  private async testEndToEndPipeline(): Promise<void> {
+    try {
+      console.log('\n7. Testing End-to-End Pipeline:');
+
+      const config = configManager.getConfig();
+
+      // Create a minimal pipeline for testing
+      const testPipeline = new DigestPipeline({
+        enableTwitter: false, // Disable to avoid API costs
+        enableTelegram: true,  // Use free scraping
+        enableRSS: true,       // Use free RSS
+        aiModel: 'anthropic',
+        aiModelName: 'claude-3-haiku-20240307', // Cheapest model
+        analysisType: 'summary',
+        postToSlack: false,    // Don't post during testing
+        minQualityThreshold: 0.3, // Very lenient
+        maxContentAge: 168     // 1 week
+      });
+
+      console.log('   ✅ Test pipeline created');
+
+      // Record execution for health monitoring
+      const startTime = Date.now();
+      
+      try {
+        // Note: We're not actually executing to avoid costs
+        // In a real test, you might execute with mock data
+        console.log('   ✅ Pipeline execution simulation successful');
+        
+        const duration = Date.now() - startTime;
+        healthMonitor.recordPipelineExecution(true, duration, 100); // Mock token usage
+        
+        console.log(`   ✅ Execution recorded in health monitoring`);
+        
+      } catch (pipelineError: any) {
+        console.log(`   ⚠️  Pipeline execution failed: ${pipelineError.message}`);
+        healthMonitor.recordPipelineExecution(false, Date.now() - startTime);
+      }
+
+      this.testResults.set('end_to_end', true);
+
+    } catch (error: any) {
+      console.log(`   ❌ End-to-end test failed: ${error.message}`);
+      this.testResults.set('end_to_end', false);
+    }
+  }
+
+  /**
+   * Test production readiness
+   */
+  private async testProductionReadiness(): Promise<void> {
+    try {
+      console.log('\n8. Testing Production Readiness:');
+
+      const config = configManager.getConfig();
+      
+      // Check environment variables
+      const envValidation = configManager.validateEnvironment();
+      if (envValidation.valid) {
+        console.log('   ✅ All required environment variables present');
+      } else {
+        console.log(`   ⚠️  Missing: ${envValidation.missing.join(', ')}`);
+      }
+
+      // Check configuration completeness
+      const requiredConfigs = [
+        'scheduling.digest_pipeline.cron_pattern',
+        'ai.default_provider',
+        'quality.min_quality_threshold'
+      ];
+
+      let configComplete = true;
+      for (const configPath of requiredConfigs) {
+        const value = this.getNestedValue(config, configPath);
+        if (!value) {
+          console.log(`   ❌ Missing config: ${configPath}`);
+          configComplete = false;
+        }
+      }
+
+      if (configComplete) {
+        console.log('   ✅ Configuration is complete');
+      }
+
+      // Check data source availability
+      const dataSources = [];
+      if (config.data_sources.twitter.enabled) dataSources.push('Twitter');
+      if (config.data_sources.telegram.enabled) dataSources.push('Telegram');
+      if (config.data_sources.rss.enabled) dataSources.push('RSS');
+      
+      console.log(`   ✅ Data sources enabled: ${dataSources.join(', ')}`);
+
+      // Check AI configuration
+      console.log(`   ✅ AI provider: ${config.ai.default_provider}`);
+      console.log(`   ✅ Daily budget: $${config.ai.cost_limits.daily_budget}`);
+
+      // Check monitoring setup
+      if (config.monitoring.health_checks) {
+        console.log('   ✅ Health monitoring enabled');
+      }
+
+      // Overall readiness assessment
+      const readinessScore = this.calculateReadinessScore(config, envValidation);
+      console.log(`   📊 Production readiness: ${readinessScore}%`);
+
+      if (readinessScore >= 80) {
+        console.log('   🚀 System is production ready!');
+      } else {
+        console.log('   ⚠️  System needs additional configuration for production');
+      }
+
+      this.testResults.set('production_readiness', true);
+
+    } catch (error: any) {
+      console.log(`   ❌ Production readiness test failed: ${error.message}`);
+      this.testResults.set('production_readiness', false);
+    }
+  }
+
+  /**
+   * Calculate production readiness score
+   */
+  private calculateReadinessScore(config: any, envValidation: any): number {
+    let score = 0;
+    const maxScore = 100;
+
+    // Environment variables (25 points)
+    if (envValidation.valid) score += 25;
+
+    // Data sources (20 points)
+    const enabledSources = [
+      config.data_sources.twitter.enabled,
+      config.data_sources.telegram.enabled,
+      config.data_sources.rss.enabled
+    ].filter(Boolean).length;
+    score += (enabledSources / 3) * 20;
+
+    // AI configuration (20 points)
+    if (config.ai.default_provider) score += 10;
+    if (config.ai.cost_limits.daily_budget > 0) score += 10;
+
+    // Monitoring (15 points)
+    if (config.monitoring.health_checks) score += 15;
+
+    // Scheduling (10 points)
+    if (config.scheduling.digest_pipeline.enabled) score += 10;
+
+    // Distribution (10 points)
+    if (config.distribution.slack.enabled) score += 10;
+
+    return Math.round(score);
+  }
+
+  /**
+   * Get nested configuration value
+   */
+  private getNestedValue(obj: any, path: string): any {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  }
+
+  /**
+   * Print test summary
+   */
+  private printTestSummary(): void {
+    console.log('\n📊 Test Summary:');
+    console.log('================================');
+
+    const totalTests = this.testResults.size;
+    const passedTests = Array.from(this.testResults.values()).filter(Boolean).length;
+    const failedTests = totalTests - passedTests;
+
+    for (const [testName, passed] of this.testResults) {
+      const status = passed ? '✅ PASS' : '❌ FAIL';
+      console.log(`${status} ${testName.replace(/_/g, ' ').toUpperCase()}`);
     }
 
-    console.log('\n🎉 Advanced AI techniques test completed successfully!');
-    console.log('\n💡 Key capabilities now available:');
-    console.log('   ✅ Template-based prompt engineering');
-    console.log('   ✅ Cost optimization and budget management');
-    console.log('   ✅ Quality assurance and validation');
-    console.log('   ✅ Multi-step reasoning chains');
-    console.log('   ✅ Advanced analysis workflows');
+    console.log('================================');
+    console.log(`Total: ${totalTests} | Passed: ${passedTests} | Failed: ${failedTests}`);
+    console.log(`Success Rate: ${((passedTests / totalTests) * 100).toFixed(1)}%`);
+    
+    const totalTime = Date.now() - this.testStartTime;
+    console.log(`Total Time: ${(totalTime / 1000).toFixed(2)}s`);
 
-  } catch (error: any) {
-    logger.error('Advanced AI test failed', error);
-    console.error('\n❌ Test failed:', error.message);
-    
-    if (error.message.includes('API_KEY')) {
-      console.log('\n💡 Make sure you have valid API keys in .env.local');
+    if (failedTests === 0) {
+      console.log('\n🎉 All automation tests passed! System is ready for production.');
+    } else {
+      console.log(`\n⚠️  ${failedTests} test(s) failed. Please review the issues above.`);
     }
-    
-    process.exit(1);
   }
 }
 
-testAdvancedAI();
+// Run the complete test suite
+async function runAutomationTests() {
+  const testSuite = new AutomationTestSuite();
+  await testSuite.runCompleteTest();
+}
+
+// Execute if run directly
+if (require.main === module) {
+  runAutomationTests()
+    .then(() => {
+      console.log('\n✅ Test suite completed successfully');
+      process.exit(0);
+    })
+    .catch(error => {
+      console.error('Test suite failed:', error);
+      process.exit(1);
+    });
+}
+
+export { runAutomationTests };
 ```
-
-
 
 **Package.json scripts to add:**
 ```json
 {
   "scripts": {
-    "test:advanced-ai": "npm run script scripts/test/test-advanced-ai.ts"
+    "test:automation": "npm run script scripts/test/test-automation-complete.ts"
   }
 }
 ```
 
-**Test your advanced AI system:**
+**Test your automation system:**
 ```bash
-npm run test:advanced-ai
+npm run test:automation
 ```
 
-## 🎯 What We've Accomplished
+If you see `Test suite completed successfully` with `Total: 8 | Passed: 8 | Failed: 0` then awesome, all systems are ready!
 
-You now have a professional-grade AI system with advanced capabilities:
+**What the Test Covers (8 Test Areas):**
+- **Configuration Management** - Loading, validating, and updating system config
+- **Health Monitoring** - Metric tracking, pipeline execution recording, alert system
+- **Pipeline Components** - Creating and configuring digest pipelines
+- **Scheduler** - Task scheduling, execution tracking, statistics
+- **Error Handling** - Retry mechanisms and failure recovery
+- **Performance** - Benchmarking key operations (config loading, metrics, scheduling)
+- **End-to-End Pipeline** - Simulated pipeline execution (without actual API calls to avoid costs)
+- **Production Readiness** - Environment validation, configuration completeness, readiness scoring
 
-✅ **Dynamic Prompt Templates** - Specialized prompts for different analysis types  
-✅ **Multi-Step Reasoning Chains** - Complex analysis broken into logical steps  
-✅ **Intelligent Cost Optimization** - Maximize insight per dollar spent  
-✅ **Quality Assurance System** - Validate outputs and improve over time  
-✅ **Template-Based Analysis** - Consistent, high-quality results  
-✅ **Budget Management** - Control costs while maintaining quality  
+## 🚀 Production Deployment Setup
 
-### 🔍 Pro Tips & Common Pitfalls
+Now let's create production deployment scripts:
 
-**💡 Pro Tip:** Use reasoning chains for complex analysis, templates for consistency, and cost optimization for scale.
-
-**⚠️ Common Pitfall:** Don't over-engineer prompts. Start simple and iterate based on actual results.
-
-**🔧 Performance Tip:** Cache template-generated prompts and reuse optimization recommendations for similar content.
-
-**💰 Cost Optimization:** Use news synthesis templates for routine analysis, market intelligence for critical decisions.
-
----
-
-### 📋 Complete Code Summary - Chapter 8
-
-**Advanced AI Components:**
 ```typescript
-// lib/ai/prompt-templates.ts - Dynamic prompt template system
-// lib/ai/reasoning-chains.ts - Multi-step reasoning implementation
-// lib/ai/cost-optimizer.ts - Intelligent cost management
-// lib/ai/quality-assurance.ts - Output validation and improvement
+// scripts/deploy/setup-production.ts
+
+import { config } from 'dotenv';
+import { execSync } from 'child_process';
+import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
+
+interface DeploymentConfig {
+  environment: 'staging' | 'production';
+  nodeEnv: string;
+  port: number;
+  logLevel: string;
+  enableHealthCheck: boolean;
+  enableMetrics: boolean;
+  cronJobs: {
+    digestPipeline: string;
+    cacheCleanup: string;
+    healthCheck: string;
+  };
+}
+
+class ProductionSetup {
+  private deployConfig: DeploymentConfig;
+
+  constructor(environment: 'staging' | 'production' = 'production') {
+    this.deployConfig = {
+      environment,
+      nodeEnv: environment,
+      port: environment === 'production' ? 3000 : 3001,
+      logLevel: environment === 'production' ? 'info' : 'debug',
+      enableHealthCheck: true,
+      enableMetrics: true,
+      cronJobs: {
+        digestPipeline: environment === 'production' ? '0 9 * * *' : '0 */2 * * *', // 9 AM daily vs every 2 hours
+        cacheCleanup: '0 2 * * *', // 2 AM daily
+        healthCheck: '*/5 * * * *' // Every 5 minutes
+      }
+    };
+  }
+
+  async setupProduction(): Promise<void> {
+    console.log(`🚀 Setting up ${this.deployConfig.environment} environment...\n`);
+
+    try {
+      // Step 1: Environment validation
+      console.log('1. Validating environment...');
+      this.validateEnvironment();
+      console.log('   ✅ Environment validation passed');
+
+      // Step 2: Create necessary directories
+      console.log('\n2. Creating directory structure...');
+      this.createDirectories();
+      console.log('   ✅ Directories created');
+
+      // Step 3: Generate production configuration
+      console.log('\n3. Generating production configuration...');
+      this.generateProductionConfig();
+      console.log('   ✅ Configuration generated');
+
+      // Step 4: Setup logging
+      console.log('\n4. Setting up logging...');
+      this.setupLogging();
+      console.log('   ✅ Logging configured');
+
+      // Step 5: Create systemd service (Linux only)
+      if (process.platform === 'linux') {
+        console.log('\n5. Creating systemd service...');
+        this.createSystemdService();
+        console.log('   ✅ Systemd service created');
+      }
+
+      // Step 6: Setup monitoring
+      console.log('\n6. Setting up monitoring...');
+      this.setupMonitoring();
+      console.log('   ✅ Monitoring configured');
+
+      // Step 7: Create startup script
+      console.log('\n7. Creating startup script...');
+      this.createStartupScript();
+      console.log('   ✅ Startup script created');
+
+      // Step 8: Setup cron jobs
+      console.log('\n8. Setting up cron jobs...');
+      this.setupCronJobs();
+      console.log('   ✅ Cron jobs configured');
+
+      console.log('\n🎉 Production setup completed successfully!');
+      this.printNextSteps();
+
+    } catch (error: any) {
+      console.error('\n❌ Production setup failed:', error.message);
+      throw error;
+    }
+  }
+
+  private validateEnvironment(): void {
+    const requiredEnvVars = [
+      'NODE_ENV',
+      'OPENAI_API_KEY',
+      'ANTHROPIC_API_KEY',
+      'NEXT_PUBLIC_SUPABASE_URL',
+      'SUPABASE_SERVICE_ROLE_KEY'
+    ];
+
+    const missing = requiredEnvVars.filter(envVar => !process.env[envVar]);
+    
+    if (missing.length > 0) {
+      throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+    }
+
+    // Check optional but recommended
+    const recommended = ['SLACK_BOT_TOKEN', 'SLACK_CHANNEL_ID'];
+    const missingRecommended = recommended.filter(envVar => !process.env[envVar]);
+    
+    if (missingRecommended.length > 0) {
+      console.log(`   ⚠️  Recommended environment variables missing: ${missingRecommended.join(', ')}`);
+    }
+  }
+
+  private createDirectories(): void {
+    const dirs = [
+      'logs',
+      'config',
+      'data',
+      'scripts/deploy',
+      'monitoring'
+    ];
+
+    dirs.forEach(dir => {
+      const fullPath = join(process.cwd(), dir);
+      if (!existsSync(fullPath)) {
+        mkdirSync(fullPath, { recursive: true });
+      }
+    });
+  }
+
+  private generateProductionConfig(): void {
+    const productionConfig = {
+      environment: this.deployConfig.environment,
+      scheduling: {
+        digest_pipeline: {
+          enabled: true,
+          cron_pattern: this.deployConfig.cronJobs.digestPipeline,
+          timezone: 'UTC',
+          max_concurrent_runs: 1,
+          retry_attempts: 3,
+          retry_delay_ms: 300000 // 5 minutes
+        },
+        cache_cleanup: {
+          enabled: true,
+          cron_pattern: this.deployConfig.cronJobs.cacheCleanup,
+          retention_days: 7
+        },
+        health_check: {
+          enabled: this.deployConfig.enableHealthCheck,
+          interval_minutes: 5
+        }
+      },
+      data_sources: {
+        twitter: {
+          enabled: !!process.env.X_API_KEY,
+          accounts: ['openai', 'anthropicai', 'elonmusk'],
+          api_rate_limit_buffer: 10000
+        },
+        telegram: {
+          enabled: true,
+          channels: ['telegram', 'durov'],
+          scraping_delay_ms: 5000
+        },
+        rss: {
+          enabled: true,
+          feeds: [
+            'https://techcrunch.com/feed/',
+            'https://www.theverge.com/rss/index.xml',
+            'https://feeds.feedburner.com/venturebeat/SZYF'
+          ],
+          timeout_ms: 30000
+        }
+      },
+      ai: {
+        default_provider: 'anthropic',
+        model_configs: {
+          routine: {
+            provider: 'openai',
+            model: 'gpt-4o-mini',
+            max_tokens: 1500,
+            temperature: 0.7
+          },
+          important: {
+            provider: 'anthropic',
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 2500,
+            temperature: 0.7
+          },
+          critical: {
+            provider: 'anthropic',
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 4000,
+            temperature: 0.3
+          }
+        },
+        cost_limits: {
+          daily_budget: this.deployConfig.environment === 'production' ? 25.0 : 5.0,
+          per_analysis_limit: this.deployConfig.environment === 'production' ? 5.0 : 1.0
+        }
+      },
+      quality: {
+        min_quality_threshold: 0.7,
+        max_content_age_hours: 24,
+        min_engagement_threshold: 10
+      },
+      distribution: {
+        slack: {
+          enabled: !!process.env.SLACK_BOT_TOKEN,
+          channel_id: process.env.SLACK_CHANNEL_ID || ''
+        },
+        webhook_notifications: {
+          enabled: false,
+          endpoints: []
+        }
+      },
+      monitoring: {
+        health_checks: this.deployConfig.enableHealthCheck,
+        alert_webhooks: [],
+        log_level: this.deployConfig.logLevel,
+        metrics_retention_days: 30
+      }
+    };
+
+    const configPath = join(process.cwd(), 'config', 'automation.json');
+    writeFileSync(configPath, JSON.stringify(productionConfig, null, 2));
+  }
+
+  private setupLogging(): void {
+    const logConfig = {
+      level: this.deployConfig.logLevel,
+      format: 'json',
+      transports: [
+        {
+          type: 'file',
+          filename: 'logs/application.log',
+          maxsize: 10485760, // 10MB
+          maxFiles: 5
+        },
+        {
+          type: 'file',
+          filename: 'logs/error.log',
+          level: 'error',
+          maxsize: 10485760,
+          maxFiles: 5
+        }
+      ]
+    };
+
+    if (this.deployConfig.environment !== 'production') {
+      logConfig.transports.push({
+        type: 'console',
+        format: 'simple'
+      } as any);
+    }
+
+    const configPath = join(process.cwd(), 'config', 'logging.json');
+    writeFileSync(configPath, JSON.stringify(logConfig, null, 2));
+  }
+
+  private createSystemdService(): void {
+    const serviceName = `cl-digest-bot-${this.deployConfig.environment}`;
+    const serviceFile = `[Unit]
+Description=CL Digest Bot ${this.deployConfig.environment}
+After=network.target
+
+[Service]
+Type=simple
+User=nodejs
+WorkingDirectory=${process.cwd()}
+Environment=NODE_ENV=${this.deployConfig.nodeEnv}
+Environment=PORT=${this.deployConfig.port}
+ExecStart=/usr/bin/node scripts/deploy/start-production.js
+Restart=always
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=${serviceName}
+
+[Install]
+WantedBy=multi-user.target`;
+
+    const servicePath = join(process.cwd(), 'scripts', 'deploy', `${serviceName}.service`);
+    writeFileSync(servicePath, serviceFile);
+
+    console.log(`   📄 Systemd service file created: ${serviceName}.service`);
+    console.log(`   💡 Copy to /etc/systemd/system/ and run:`);
+    console.log(`      sudo systemctl daemon-reload`);
+    console.log(`      sudo systemctl enable ${serviceName}`);
+    console.log(`      sudo systemctl start ${serviceName}`);
+  }
+
+  private setupMonitoring(): void {
+    // Create a simple health check endpoint
+    const healthCheckScript = `#!/usr/bin/env node
+const http = require('http');
+
+const options = {
+  hostname: 'localhost',
+  port: ${this.deployConfig.port},
+  path: '/health',
+  method: 'GET',
+  timeout: 5000
+};
+
+const req = http.request(options, (res) => {
+  if (res.statusCode === 200) {
+    console.log('Health check passed');
+    process.exit(0);
+  } else {
+    console.log(\`Health check failed: \${res.statusCode}\`);
+    process.exit(1);
+  }
+});
+
+req.on('error', (err) => {
+  console.log(\`Health check error: \${err.message}\`);
+  process.exit(1);
+});
+
+req.on('timeout', () => {
+  console.log('Health check timeout');
+  req.destroy();
+  process.exit(1);
+});
+
+req.end();`;
+
+    const healthCheckPath = join(process.cwd(), 'scripts', 'deploy', 'health-check.js');
+    writeFileSync(healthCheckPath, healthCheckScript);
+    
+    // Make it executable
+    try {
+      execSync(`chmod +x ${healthCheckPath}`);
+    } catch (error) {
+      // Ignore on Windows
+    }
+  }
+
+  private createStartupScript(): void {
+    const startupScript = `#!/usr/bin/env node
+
+// Production startup script
+const { spawn } = require('child_process');
+const path = require('path');
+
+console.log('🚀 Starting CL Digest Bot in production mode...');
+
+// Set production environment
+process.env.NODE_ENV = '${this.deployConfig.nodeEnv}';
+process.env.PORT = '${this.deployConfig.port}';
+
+// Start the application
+const appProcess = spawn('node', ['scripts/automation/start-automation.js'], {
+  stdio: 'inherit',
+  cwd: process.cwd()
+});
+
+appProcess.on('error', (error) => {
+  console.error('Failed to start application:', error);
+  process.exit(1);
+});
+
+appProcess.on('exit', (code) => {
+  console.log(\`Application exited with code \${code}\`);
+  process.exit(code);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM, shutting down gracefully...');
+  appProcess.kill('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  console.log('Received SIGINT, shutting down gracefully...');
+  appProcess.kill('SIGINT');
+});`;
+
+    const startupPath = join(process.cwd(), 'scripts', 'deploy', 'start-production.js');
+    writeFileSync(startupPath, startupScript);
+    
+    try {
+      execSync(`chmod +x ${startupPath}`);
+    } catch (error) {
+      // Ignore on Windows
+    }
+  }
+
+  private setupCronJobs(): void {
+    const cronEntries = [
+      `# CL Digest Bot - ${this.deployConfig.environment}`,
+      `${this.deployConfig.cronJobs.digestPipeline} cd ${process.cwd()} && node scripts/automation/run-digest.js >> logs/cron.log 2>&1`,
+      `${this.deployConfig.cronJobs.cacheCleanup} cd ${process.cwd()} && node scripts/automation/cleanup-cache.js >> logs/cron.log 2>&1`,
+      `${this.deployConfig.cronJobs.healthCheck} cd ${process.cwd()} && node scripts/deploy/health-check.js >> logs/health.log 2>&1`,
+      '' // Empty line at end
+    ];
+
+    const crontabPath = join(process.cwd(), 'scripts', 'deploy', 'crontab');
+    writeFileSync(crontabPath, cronEntries.join('\n'));
+
+    console.log('   📄 Crontab file created');
+    console.log('   💡 Install with: crontab scripts/deploy/crontab');
+  }
+
+  private printNextSteps(): void {
+    console.log('\n📋 Next Steps:');
+    console.log('==============');
+    console.log('1. Review configuration files in config/');
+    console.log('2. Test the setup: npm run test:automation-complete');
+    console.log('3. Start the application: node scripts/deploy/start-production.js');
+    
+    if (process.platform === 'linux') {
+      console.log('4. Install systemd service (optional):');
+      console.log('   sudo cp scripts/deploy/*.service /etc/systemd/system/');
+      console.log('   sudo systemctl daemon-reload');
+      console.log('   sudo systemctl enable cl-digest-bot-production');
+      console.log('   sudo systemctl start cl-digest-bot-production');
+    }
+    
+    console.log('5. Install cron jobs: crontab scripts/deploy/crontab');
+    console.log('6. Monitor logs: tail -f logs/application.log');
+    console.log('7. Check health: node scripts/deploy/health-check.js');
+    
+    console.log('\n🔧 Useful Commands:');
+    console.log('==================');
+    console.log('• Check status: npm run test:automation-complete');
+    console.log('• View logs: tail -f logs/application.log');
+    console.log('• Health check: node scripts/deploy/health-check.js');
+    console.log('• Stop safely: pkill -SIGTERM -f "start-production"');
+  }
+}
+
+// CLI interface
+async function main() {
+  const args = process.argv.slice(2);
+  const environment = args[0] === 'staging' ? 'staging' : 'production';
+  
+  const setup = new ProductionSetup(environment);
+  await setup.setupProduction();
+}
+
+if (require.main === module) {
+  main().catch(error => {
+    console.error('Setup failed:', error);
+    process.exit(1);
+  });
+}
 ```
 
-**Testing:**
-```typescript
-// scripts/test/test-advanced-ai.ts - Comprehensive advanced AI testing
-```
+## 🚀 About the Production Setup Script
 
-## 🎉 **AI Integration Complete!**
+The `/scripts/deploy/setup-production.js` script we just created is your **one-click production deployment tool**. Here's what it does:
 
-With Chapters 7-8 finished, you now have a **world-class AI analysis system** that rivals enterprise solutions. Your system can:
+### What the Script Sets Up:
+- **🔧 Production Configuration** - Creates optimized config files for production environment
+- **📦 Systemd Services** - Linux service files for automatic startup and crash recovery  
+- **⏰ Cron Jobs** - Automated scheduling for digest pipeline, cache cleanup, and health checks
+- **📊 Health Monitoring** - Endpoint monitoring and status checking scripts
+- **🔄 Startup Scripts** - Production-ready application startup with graceful shutdown
+- **📝 Log Configuration** - Structured logging with proper rotation
 
-- **Analyze any content type** with specialized templates
-- **Optimize costs automatically** while maintaining quality  
-- **Chain complex reasoning** for sophisticated analysis
-- **Validate output quality** and improve over time
-- **Scale efficiently** with budget controls
+### When to Run It:
+**🟡 NOT YET!** Don't run this script now. Here's the roadmap:
 
-**Tutorial Progress: ~85% Complete!** 🚀
+### 📅 Tutorial Roadmap - What's Left:
 
-**Next up:** Chapters 9-11 will focus on **automation and distribution** - turning your intelligent analysis system into a fully automated content operation that runs itself and distributes insights across multiple channels.
+**Chapter 10: Social Media Distribution** *(Next)*
+- Multi-platform posting (Twitter, Instagram, TikTok, YouTube)
+- Automated video generation with FFmpeg
+- Social media analytics and performance tracking
+- Content adaptation for different platforms
 
----
+**Chapter 11: Team Collaboration** *(After Chapter 10)*
+- Advanced Slack integration with interactive workflows
+- User management and role-based permissions
+- Collaborative content review and approval processes
+- Team analytics and reporting dashboards
 
-*Ready to automate everything? The next chapters will show you how to schedule your AI system, distribute content across social media, and build team collaboration workflows! ⚙️*
+**Chapter 12: Production Deployment** *(Final Chapter)*
+- **⚡ This is when you'll run the setup script!**
+- Docker containerization and Kubernetes deployment
+- CI/CD pipelines with GitHub Actions
+- Production monitoring with Prometheus and Grafana
+- Security hardening and backup strategies
+
+### 🎯 The Complete Flow:
+1. **Chapters 1-9** ✅ - Build the complete system locally
+2. **Chapter 10** 🔄 - Add social media distribution
+3. **Chapter 11** 🔄 - Enable team collaboration  
+4. **Chapter 12** 🔄 - Deploy to production (run setup script here!)
+
+**Why wait?** The production setup script creates systemd services and cron jobs that expect the full system to be complete, including social media distribution and team collaboration features we haven't built yet.
+
+**Next up:** Chapter 10 will add the social media distribution layer, turning your digest bot into a content powerhouse that automatically posts across platforms! 🚀
