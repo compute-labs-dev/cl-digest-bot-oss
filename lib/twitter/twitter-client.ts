@@ -17,23 +17,46 @@ interface RateLimitInfo {
   reset: number; // Unix timestamp
 }
 
+// Interfaces for posting functionality
+export interface DigestTweet {
+  title: string;
+  summary: string;
+  keyInsights: string[];
+  trendingTopics: Array<{
+    topic: string;
+    relevance_score: number;
+  }>;
+  confidence_score: number;
+  sources_count: number;
+}
+
+export interface TweetResult {
+  success: boolean;
+  tweetId?: string;
+  url?: string;
+  error?: string;
+  threadIds?: string[]; // For multi-tweet threads
+}
+
 export class TwitterClient {
-  private client: TwitterApiReadOnly;
+  private readOnlyClient: TwitterApiReadOnly;
+  private writeClient?: TwitterApi;
   private rateLimitInfo: Map<string, RateLimitInfo> = new Map();
+  private canWrite: boolean = false;
 
   constructor() {
-    // For Twitter API v2, we need Bearer Token for OAuth 2.0 Application-Only auth
+    // Initialize read-only client (OAuth 2.0 Bearer token or App-only)
     const bearerToken = process.env.X_BEARER_TOKEN;
     const apiKey = process.env.X_API_KEY;
     const apiSecret = process.env.X_API_SECRET;
 
-    // Try Bearer Token first (recommended for v2 API)
+    // Try Bearer Token first (recommended for v2 API read operations)
     if (bearerToken) {
-      this.client = new TwitterApi(bearerToken).readOnly;
+      this.readOnlyClient = new TwitterApi(bearerToken).readOnly;
     } 
-    // Fallback to App Key/Secret (OAuth 1.0a style)
+    // Fallback to App Key/Secret (OAuth 1.0a style for read operations)
     else if (apiKey && apiSecret) {
-      this.client = new TwitterApi({
+      this.readOnlyClient = new TwitterApi({
         appKey: apiKey,
         appSecret: apiSecret,
       }).readOnly;
@@ -42,7 +65,286 @@ export class TwitterClient {
       throw new Error('Missing Twitter API credentials. Need either X_BEARER_TOKEN or both X_API_KEY and X_API_SECRET in .env.local file.');
     }
 
-    logger.info('Twitter client initialized with proper authentication');
+    // Initialize write client (OAuth 1.0a with user context)
+    this.initializeWriteClient();
+
+    logger.info('Twitter client initialized', { 
+      readAccess: true, 
+      writeAccess: this.canWrite 
+    });
+  }
+
+  /**
+   * Initialize write client with OAuth 1.0a credentials
+   */
+  private initializeWriteClient(): void {
+    try {
+      // TODO: Once you get matching access tokens for X_ app, uncomment these lines:
+      // const apiKey = process.env.X_API_KEY;
+      // const apiSecret = process.env.X_API_SECRET;
+      // const accessToken = process.env.X_ACCESS_TOKEN;  // Get these new tokens
+      // const accessSecret = process.env.X_ACCESS_TOKEN_SECRET;  // Get these new tokens
+
+      // Current setup (using invalid TWITTER_ credentials)
+      const apiKey = process.env.TWITTER_API_KEY;
+      const apiSecret = process.env.TWITTER_API_SECRET;
+      const accessToken = process.env.TWITTER_ACCESS_TOKEN;
+      const accessSecret = process.env.TWITTER_ACCESS_TOKEN_SECRET;
+
+      // Check if all write credentials are available and are strings
+      if (apiKey && apiSecret && accessToken && accessSecret) {
+        
+        this.writeClient = new TwitterApi({
+          appKey: apiKey,
+          appSecret: apiSecret,
+          accessToken: accessToken,
+          accessSecret: accessSecret,
+        });
+        this.canWrite = true;
+        logger.info('Write client initialized successfully with TWITTER_* credentials');
+      } else {
+        logger.warn('Write credentials incomplete - posting disabled', {
+          hasApiKey: !!apiKey,
+          hasApiSecret: !!apiSecret,
+          hasAccessToken: !!accessToken,
+          hasAccessSecret: !!accessSecret
+        });
+      }
+    } catch (error) {
+      logger.warn('Write client initialization failed', error);
+      this.canWrite = false;
+    }
+  }
+
+  /**
+   * Post a digest as a Twitter thread
+   */
+  async postDigestThread(digest: DigestTweet): Promise<TweetResult> {
+    if (!this.canWrite || !this.writeClient) {
+      return {
+        success: false,
+        error: 'Twitter write credentials not configured'
+      };
+    }
+
+    try {
+      logger.info('Posting digest thread to Twitter', { title: digest.title });
+
+      // Build thread content
+      const threadTweets = this.buildDigestThread(digest);
+      
+      // Post the thread
+      const threadResult = await this.postThread(threadTweets);
+
+      if (threadResult.success && threadResult.threadIds && threadResult.threadIds.length > 0) {
+        const mainTweetId = threadResult.threadIds[0];
+        
+        logger.info('Digest thread posted successfully', {
+          mainTweetId,
+          threadLength: threadResult.threadIds.length
+        });
+
+        return {
+          success: true,
+          tweetId: mainTweetId,
+          url: `https://twitter.com/user/status/${mainTweetId}`,
+          threadIds: threadResult.threadIds
+        };
+      }
+
+      return threadResult;
+
+    } catch (error: any) {
+      logger.error('Failed to post digest thread', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Post a simple digest summary tweet
+   */
+  async postDigestSummary(digest: DigestTweet): Promise<TweetResult> {
+    if (!this.canWrite || !this.writeClient) {
+      return {
+        success: false,
+        error: 'Twitter write credentials not configured'
+      };
+    }
+
+    try {
+      const tweetText = this.formatDigestSummary(digest);
+      
+      const result = await this.writeClient.v2.tweet(tweetText);
+      
+      logger.info('Digest summary posted to Twitter', { 
+        tweetId: result.data.id 
+      });
+
+      return {
+        success: true,
+        tweetId: result.data.id,
+        url: `https://twitter.com/user/status/${result.data.id}`
+      };
+
+    } catch (error: any) {
+      logger.error('Failed to post digest summary', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Build a thread from digest content
+   */
+  private buildDigestThread(digest: DigestTweet): string[] {
+    const tweets: string[] = [];
+    
+    // Tweet 1: Main summary with hook
+    const mainTweet = `🚀 ${digest.title}
+
+${digest.summary}
+
+🧵 Thread with key insights below 👇
+
+#TechDigest #AI ${this.getHashtagsFromTopics(digest.trendingTopics)}`;
+
+    tweets.push(this.truncateToTweetLength(mainTweet));
+
+    // Tweet 2+: Key insights (one per tweet or combined if short)
+    let currentTweet = '';
+    let tweetCount = 2;
+
+    digest.keyInsights.forEach((insight, index) => {
+      const insightText = `${index + 1}/ ${insight}`;
+      
+      // If adding this insight would exceed tweet length, post current tweet and start new one
+      if (currentTweet && (currentTweet + '\n\n' + insightText).length > 260) {
+        tweets.push(this.truncateToTweetLength(currentTweet));
+        currentTweet = insightText;
+        tweetCount++;
+      } else {
+        currentTweet = currentTweet 
+          ? currentTweet + '\n\n' + insightText 
+          : insightText;
+      }
+    });
+
+    // Add the last tweet if there's content
+    if (currentTweet) {
+      tweets.push(this.truncateToTweetLength(currentTweet));
+    }
+
+    // Final tweet: Trending topics and stats
+    const finalTweet = `📊 Key Stats:
+• ${digest.sources_count} sources analyzed
+• ${(digest.confidence_score * 100).toFixed(0)}% confidence
+• Top trends: ${digest.trendingTopics.slice(0, 2).map(t => t.topic).join(', ')}
+
+🤖 Generated by CL Digest Bot`;
+
+    tweets.push(this.truncateToTweetLength(finalTweet));
+
+    return tweets;
+  }
+
+  /**
+   * Post a thread of tweets
+   */
+  private async postThread(tweets: string[]): Promise<TweetResult> {
+    if (!this.writeClient) {
+      return { success: false, error: 'Write client not available' };
+    }
+
+    const threadIds: string[] = [];
+    let replyToId: string | undefined;
+
+    try {
+      for (let i = 0; i < tweets.length; i++) {
+        const tweetOptions: any = {
+          text: tweets[i]
+        };
+
+        // Add reply-to for thread continuity
+        if (replyToId) {
+          tweetOptions.reply = { in_reply_to_tweet_id: replyToId };
+        }
+
+        const result = await this.writeClient.v2.tweet(tweetOptions);
+        threadIds.push(result.data.id);
+        replyToId = result.data.id;
+
+        // Add small delay between tweets to avoid rate limits
+        if (i < tweets.length - 1) {
+          await this.sleep(1000); // 1 second delay
+        }
+      }
+
+      return {
+        success: true,
+        threadIds: threadIds
+      };
+
+    } catch (error: any) {
+      logger.error('Failed to post thread', { error: error.message, postedTweets: threadIds.length });
+      return {
+        success: false,
+        error: error.message,
+        threadIds: threadIds // Return partial success
+      };
+    }
+  }
+
+  /**
+   * Format digest as a single summary tweet
+   */
+  private formatDigestSummary(digest: DigestTweet): string {
+    const topInsights = digest.keyInsights.slice(0, 2);
+    const topTopics = digest.trendingTopics.slice(0, 2).map(t => `#${t.topic.replace(/\s+/g, '')}`);
+    
+    const summary = `🚀 ${digest.title}
+
+${digest.summary}
+
+💡 Key insights:
+${topInsights.map((insight, i) => `${i + 1}. ${insight.substring(0, 100)}${insight.length > 100 ? '...' : ''}`).join('\n')}
+
+📊 ${digest.sources_count} sources • ${(digest.confidence_score * 100).toFixed(0)}% confidence
+
+${topTopics.join(' ')} #TechDigest #AI`;
+
+    return this.truncateToTweetLength(summary);
+  }
+
+  /**
+   * Get hashtags from trending topics
+   */
+  private getHashtagsFromTopics(topics: Array<{ topic: string; relevance_score: number }>): string {
+    return topics
+      .slice(0, 2)
+      .map(t => `#${t.topic.replace(/\s+/g, '').replace(/[^a-zA-Z0-9]/g, '')}`)
+      .join(' ');
+  }
+
+  /**
+   * Truncate text to Twitter's character limit
+   */
+  private truncateToTweetLength(text: string, maxLength: number = 280): string {
+    if (text.length <= maxLength) {
+      return text;
+    }
+    
+    // Find the last complete word within the limit
+    const truncated = text.substring(0, maxLength - 3);
+    const lastSpace = truncated.lastIndexOf(' ');
+    
+    return lastSpace > 0 
+      ? truncated.substring(0, lastSpace) + '...'
+      : truncated + '...';
   }
 
   /**
@@ -125,7 +427,7 @@ export class TwitterClient {
    */
   private async getUserByUsername(username: string): Promise<TwitterUser | null> {
     try {
-      const response = await this.client.v2.userByUsername(username, {
+      const response = await this.readOnlyClient.v2.userByUsername(username, {
         'user.fields': [
           'description',
           'public_metrics',
@@ -153,7 +455,7 @@ export class TwitterClient {
    * Fetch a single page of tweets
    */
   private async fetchTweetPage(userId: string, options: any) {
-    return await this.client.v2.userTimeline(userId, {
+    return await this.readOnlyClient.v2.userTimeline(userId, {
       ...options,
       'tweet.fields': [
         'created_at',
@@ -291,7 +593,7 @@ export class TwitterClient {
   private async checkApiQuota(): Promise<void> {
     try {
       // Get current rate limit status
-      const rateLimits = await this.client.v1.get('application/rate_limit_status.json', {
+      const rateLimits = await this.readOnlyClient.v1.get('application/rate_limit_status.json', {
         resources: 'users,tweets'
       });
       
@@ -323,7 +625,7 @@ export class TwitterClient {
   async testConnection(): Promise<boolean> {
     try {
       // Use a simple endpoint that works with OAuth 2.0 Application-Only
-      await this.client.v1.get('application/rate_limit_status.json');
+      await this.readOnlyClient.v1.get('application/rate_limit_status.json');
       logger.info('Twitter API connection test successful');
       return true;
     } catch (error: any) {
@@ -333,5 +635,26 @@ export class TwitterClient {
       });
       return false;
     }
+  }
+
+  /**
+   * Sleep for a given number of milliseconds
+   */
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Check if client is ready for read operations
+   */
+  public isReady(): boolean {
+    return !!this.readOnlyClient;
+  }
+
+  /**
+   * Check if client can perform write operations (post tweets)
+   */
+  public canPost(): boolean {
+    return this.canWrite;
   }
 }

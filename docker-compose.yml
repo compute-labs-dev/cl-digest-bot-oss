@@ -1,0 +1,59 @@
+services:
+  digest-bot:
+    build: .
+    container_name: cl-digest-bot
+    env_file:
+      - .env.local
+    environment:
+      - NODE_ENV=production
+      - RUN_INTERVAL_MINUTES=120  # Run every 2 hours
+      
+      # Database
+      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_KEY}
+      
+      # AI Services
+      - OPENAI_API_KEY=${OPENAI_API_KEY}.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      
+      # Twitter API
+      - TWITTER_API_KEY=${TWITTER_API_KEY}
+      - TWITTER_API_SECRET=${TWITTER_API_SECRET}
+      - TWITTER_ACCESS_TOKEN=${TWITTER_ACCESS_TOKEN}
+      - TWITTER_ACCESS_TOKEN_SECRET=${TWITTER_ACCESS_TOKEN_SECRET}
+      
+      # Slack Integration
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID}
+      
+      # Optional: Telegram (if using)
+      - TELEGRAM_SESSION_STRING=${TELEGRAM_SESSION_STRING}
+    
+    volumes:
+      # Persist logs outside container
+      - ./logs:/app/logs
+      # Optional: Persist any cache data
+      - digest-cache:/app/cache
+    
+    restart: unless-stopped
+    
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  digest-cache: 

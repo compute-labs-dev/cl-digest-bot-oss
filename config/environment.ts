@@ -1,4 +1,12 @@
 // config/environment.ts
+import { config } from 'dotenv';
+import { join } from 'path';
+
+// Load environment variables from multiple possible locations
+config({ path: join(__dirname, '../.env.local') });
+config({ path: join(__dirname, '../../.env.local') });
+config({ path: './.env.local' });
+config({ path: './.env' });
 
 export interface EnvironmentConfig {
     development: boolean;

@@ -1,21 +1,19 @@
 // lib/supabase/supabase-client.ts
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/database';
-import { config } from 'dotenv';
+import { envConfig } from '../../config/environment';
 
-// Load environment variables
-config({ path: '.env.local' });
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl = envConfig.supabaseUrl;
+const supabaseServiceKey = envConfig.supabaseServiceKey;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
 // Create the client with proper typing
 export const supabase = createClient<Database>(
   supabaseUrl,
-  supabaseAnonKey,
+  supabaseServiceKey,
   {
     auth: {
       persistSession: false, // We're not using auth for now

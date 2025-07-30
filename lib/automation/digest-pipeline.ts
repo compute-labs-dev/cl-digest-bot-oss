@@ -11,6 +11,9 @@ import { AIService } from '../ai/ai-service';
 import { DigestStorage } from '../digest/digest-storage';
 import { SlackClient } from '../slack/slack-client';
 import { ProgressTracker } from '../../utils/progress';
+import { DigestDistributor, DistributionConfig } from '../social/digest-distributor';
+import { SlackNotifier } from '../slack/slack-notifier';
+
 import logger from '../logger';
 
 export interface DigestPipelineConfig {
@@ -44,7 +47,9 @@ export class DigestPipeline implements ScheduledTask {
   private aiService: AIService;
   private digestStorage: DigestStorage;
   private slackClient?: SlackClient;
-
+  private digestDistributor: DigestDistributor;
+  private slackNotifier: SlackNotifier;
+  
   constructor(config: DigestPipelineConfig) {
     this.config = config;
     
@@ -77,6 +82,9 @@ export class DigestPipeline implements ScheduledTask {
     } else {
       this.aiService.useClaude(config.aiModelName);
     }
+
+    this.digestDistributor = new DigestDistributor();
+    this.slackNotifier = new SlackNotifier();
   }
 
   /**
@@ -84,13 +92,16 @@ export class DigestPipeline implements ScheduledTask {
    */
   async execute(): Promise<void> {
     const progress = new ProgressTracker({
-      total: 6,
+      total: 8,
       label: 'Digest Pipeline'
     });
 
+    const startTime = Date.now();
+    let currentStep = 'initialization';
+
     try {
       logger.info('Starting digest pipeline execution');
-
+      currentStep = 'data collection';
       // Step 1: Collect Twitter data
       progress.update(1, { step: 'Twitter Collection' });
       const tweets = await this.collectTwitterData();
@@ -116,6 +127,7 @@ export class DigestPipeline implements ScheduledTask {
         return;
       }
 
+      currentStep = 'ai analysis';
       // Step 5: AI Analysis
       progress.update(5, { step: 'AI Analysis' });
       const aiResponse = await this.aiService.analyzeContent({
@@ -131,6 +143,37 @@ export class DigestPipeline implements ScheduledTask {
         await this.distributeToSlack(aiResponse, digestId);
       }
 
+      currentStep='Social Media Distribution'
+      // Step 7: Distribute to social media
+      progress.update(7, { step: 'Social Media Distribution' });
+      
+      const distributionResults = await this.digestDistributor.distributeDigest(
+        { ...aiResponse.analysis, id: digestId },
+        { enableTwitter: true, tweetFormat: 'thread' }
+      );
+
+      // Get Twitter URL if successful
+      const twitterResult = distributionResults.find(r => r.platform === 'twitter' && r.success);
+      const twitterUrl = twitterResult?.url;
+
+      // Calculate processing time
+      const processingTime = Math.round((Date.now() - startTime) / 1000);
+
+      // Send success notification (don't block pipeline on this)
+      this.sendSlackNotificationSafely(() => 
+        this.slackNotifier.notifyDigestComplete(
+          aiResponse.analysis.title,
+          twitterUrl,
+          {
+            digest_id: digestId,
+            sources_count: analysisContent.metadata.total_sources,
+            processing_time: `${processingTime}s`,
+            ai_model: aiResponse.model_info.model,
+            confidence: `${(aiResponse.analysis.confidence_score * 100).toFixed(0)}%`
+          }
+        )
+      );
+
       progress.complete(`Pipeline completed successfully (Digest: ${digestId})`);
       
       logger.info('Digest pipeline completed successfully', {
@@ -141,9 +184,13 @@ export class DigestPipeline implements ScheduledTask {
       });
 
     } catch (error: any) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      progress.fail(`Pipeline failed: ${errorMessage}`);
-      logger.error('Digest pipeline failed', error);
+      progress.fail(`Pipeline failed: ${ error.message }, ${ currentStep }`);      
+
+      // Send error notification (don't block pipeline on this)
+      this.sendSlackNotificationSafely(() => 
+        this.slackNotifier.notifyDigestError(error.message, currentStep)
+      );
+
       throw error;
     }
   }
@@ -412,6 +459,24 @@ export class DigestPipeline implements ScheduledTask {
       logger.error('Failed to distribute to Slack', error);
       // Don't throw - we still want the digest to be considered successful
     }
+  }
+
+  /**
+   * Send Slack notification safely without blocking pipeline execution
+   */
+  private sendSlackNotificationSafely(notificationFn: () => Promise<void>): void {
+    // Set a reasonable timeout for Slack notifications
+    const timeoutMs = 10000; // 10 seconds
+    
+    Promise.race([
+      notificationFn(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Slack notification timeout')), timeoutMs)
+      )
+    ]).catch(error => {
+      // Log error but don't throw - we don't want Slack issues to break the pipeline
+      logger.warn('Slack notification failed (continuing pipeline anyway)', error);
+    });
   }
 
   /**

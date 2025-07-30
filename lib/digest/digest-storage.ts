@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { envConfig } from '../../config/environment';
 import logger from '../logger';
+import { randomUUID } from 'crypto';
 
 export interface DigestData {
   title: string;
@@ -120,6 +121,7 @@ export class DigestStorage {
   }
 
   private generateDigestId(): string {
-    return `digest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate a proper UUID v4 that matches the database schema
+    return randomUUID();
   }
 }

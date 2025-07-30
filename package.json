@@ -16,7 +16,9 @@
     "test:digest": "npm run script scripts/digest/test-digest.ts",
     "test:rss": "npm run script scripts/test/test-rss.ts",
     "test:telegram": "npm run script scripts/test/test-telegram.ts",
-    "test:twitter": "npm run script scripts/test/test-twitter.ts"
+    "test:twitter": "npm run script scripts/test/test-twitter.ts",
+    "test:twitter-distribution": "npm run script scripts/test/test-twitter-distribution.ts",
+    "digest:once": "npm run script scripts/digest/run-once.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.12",
