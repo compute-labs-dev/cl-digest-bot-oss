@@ -6,43 +6,185 @@
 
 This is the moment we've been building toward! We've collected tweets, scraped Telegram channels, and parsed RSS feeds. Now it's time to transform that raw data soup into crystal-clear insights using the most powerful AI models available.
 
-In this chapter, we'll integrate **OpenAI GPT-4** and **Anthropic Claude** to analyze, summarize, and extract meaning from our content. You'll learn advanced prompt engineering, token optimization, and how to build AI systems that scale without breaking your budget.
+In this chapter, we'll integrate **4 different AI providers** - OpenAI, Anthropic, Google, and Ollama - giving you complete flexibility to choose based on your budget, privacy needs, and quality requirements. You'll learn advanced prompt engineering, intelligent content filtering, and how to build AI systems that scale.
 
-## 🧠 Why Multiple AI Models?
+## 🧠 Why 4 Different AI Providers?
 
-**Different models, different strengths:**
+**Maximum flexibility for every use case:**
 
-**OpenAI GPT-4:**
-- Excellent at creative tasks and reasoning
-- Great for structured output generation
-- Strong multilingual capabilities
-- Faster inference for simple tasks
+**OpenAI (GPT-4/o1):**
+- Excellent reasoning and creative tasks
+- Great structured output generation
+- Reliable and well-documented
+- Premium pricing for premium quality
 
-**Anthropic Claude:**
-- Superior for analysis and reasoning
-- Better at following complex instructions
-- More nuanced understanding of context
-- Excellent for long-form content
+**Anthropic (Claude):**
+- Superior long-form analysis
+- Excellent instruction following
+- Advanced reasoning capabilities
+- Great for complex content analysis
 
-**Our Strategy:** Use both models and let users choose based on their needs and budget.
+**Google (Gemini):**
+- Cost-effective cloud option
+- Good performance at lower cost
+- Integrated with Google ecosystem
+- Great balance of price/performance
 
-## 💰 AI Model Costs (Reality Check)
+**Ollama (Local):**
+- Completely free after setup
+- Full privacy control (runs locally)
+- No API limits or costs
+- Perfect for development and testing
 
-**OpenAI Pricing (GPT-4):**
-- Input: $2.50 per 1M tokens
-- Output: $10.00 per 1M tokens
-- **Estimate**: ~$0.10-0.50 per digest (depending on content volume)
+**Our Strategy:** Start free with Ollama, scale cost-effectively with Gemini, upgrade to OpenAI/Claude for premium quality when needed.
 
-**Anthropic Pricing (Claude-3.5-Sonnet):**
-- Input: $3.00 per 1M tokens  
-- Output: $15.00 per 1M tokens
+## 💰 AI Model Costs & Provider Comparison
+
+We'll support **4 AI providers** to give you flexibility based on your budget and performance needs:
+
+### Cloud Providers (API-based, pay-per-use)
+
+**OpenAI (GPT-4/o1):**
+- Input: $2.50 per 1M tokens | Output: $10.00 per 1M tokens
+- **Estimate**: ~$0.10-0.50 per digest
+- **Best for**: Highest quality reasoning, complex analysis tasks
+
+**Anthropic (Claude):**
+- Input: $3.00 per 1M tokens | Output: $15.00 per 1M tokens  
 - **Estimate**: ~$0.15-0.75 per digest
+- **Best for**: Long-form content analysis, excellent instruction following
+
+**Google (Gemini Pro):**
+- Input: $1.25 per 1M tokens | Output: $5.00 per 1M tokens
+- **Estimate**: ~$0.05-0.25 per digest
+- **Best for**: Cost-effective alternative with good performance
+
+### Local Provider (Self-hosted, free after setup)
+
+**Ollama (Llama 3.1, Qwen, etc.):**
+- **Cost**: Free (after initial setup)
+- **Hardware**: Requires 8GB+ RAM for good performance
+- **Best for**: Development, testing, privacy-sensitive use cases
+
+### Choosing Your Provider
+
+| Provider | Cost | Quality | Speed | Privacy | Best Use Case |
+|----------|------|---------|-------|---------|---------------|
+| **OpenAI** | $$$$$ | Excellent | Fast | Cloud | Production, highest quality |
+| **Anthropic** | $$$$$ | Excellent | Fast | Cloud | Analysis-heavy tasks |
+| **Google Gemini** | $$$ | Very Good | Fast | Cloud | Cost-conscious production |
+| **Ollama** | Free | Good | Medium | Local | Development, privacy |
 
 **💡 Cost Management Strategy:**
-- Smart prompt engineering to minimize tokens
+- Start with **Ollama** for development and testing (free)
+- Use **Gemini** for cost-effective production deployment
+- Switch to **OpenAI/Anthropic** for highest quality when needed
+- Smart prompt engineering to minimize tokens across all providers
 - Content filtering before AI processing
-- Batch processing for efficiency
-- Configurable model selection
+
+## 🔍 The Two-Stage Content Filtering System
+
+Here's something crucial that most AI tutorials miss: **your AI model isn't just generating content - it's also acting as an intelligent filter and curator**. Understanding this is key to building a system that scales with content volume.
+
+### Stage 1: Rule-Based Pre-Filtering (The Bouncer 👊)
+
+This is what we built in previous chapters:
+- **Engagement thresholds**: Remove low-engagement tweets
+- **Spam detection**: Filter out noise patterns (RT spam, link-only posts)
+- **Length requirements**: Ensure minimum content quality
+- **Rate limiting**: Handle API constraints
+
+```typescript
+// Example from our TweetProcessor
+const isQualityTweet = (tweet) => {
+  // Rule-based filtering
+  if (tweet.text.length < 20) return false;  // Too short
+  if (tweet.engagement_score < 20) return false;  // Low engagement
+  if (NOISE_PATTERNS.some(pattern => pattern.test(tweet.text))) return false;  // Spam
+  return true;
+};
+```
+
+**This stage removes obvious junk but passes through everything else.**
+
+### Stage 2: AI-Powered Intelligent Filtering (The Curator)
+
+This is where the magic happens. The AI model doesn't just summarize everything you feed it - **it intelligently selects, prioritizes, and curates the most relevant content**.
+
+Here's what the AI is actually doing during content analysis:
+
+```typescript
+// What happens inside generateDigestContent()
+const analysisPrompt = `
+You are analyzing ${totalItems} pieces of content. Your job is to:
+
+1. INTELLIGENTLY SELECT the most newsworthy and relevant items
+2. IGNORE content that is repetitive, off-topic, or low-value
+3. PRIORITIZE content that shows emerging trends or important developments
+4. SYNTHESIZE insights from multiple sources when they discuss the same topic
+
+Focus on HIGH-QUALITY content that provides genuine value to readers.
+Do not include every item - be selective and focus on what truly matters.
+`;
+```
+
+**The AI is making thousands of micro-decisions:**
+- "This tweet about lunch is irrelevant - ignore it"
+- "These 5 tweets are all about the same AI release - combine them into one insight"
+- "This RSS article contradicts what Twitter users are saying - worth investigating"
+- "This Telegram message has insider information - prioritize it"
+
+### Why This Two-Stage System Works
+
+**Token Economics Drive Intelligence:**
+- With 100,000+ words of input but only 4,000 tokens for output, the AI *must* be selective
+- This constraint forces the AI to act as an intelligent filter, not just a summarizer
+- The AI naturally prioritizes higher-quality, more relevant content
+
+**Example of AI Filtering in Action:**
+
+```typescript
+// Input: 200 tweets, 50 RSS articles, 100 Telegram messages
+// Rule-based filter: Removes 150 low-quality items → 200 items remain
+// AI intelligent filter: Selects 30 most relevant items for final digest
+
+// The AI might decide:
+// ✅ Include: Breaking AI research with high engagement
+// ❌ Skip: Random crypto speculation with low engagement  
+// ✅ Include: Insider info from Telegram that aligns with Twitter trends
+// ❌ Skip: Repetitive content already covered in better sources
+// ✅ Combine: Multiple tweets about same topic into single insight
+```
+
+**Quality Scoring Integration:**
+
+The AI uses quality scores from our pre-filtering to make better decisions:
+
+```typescript
+// In prepareContentForAnalysis()
+sections.push(`**Engagement:** ${tweet.engagement_score} (Quality: ${tweet.quality_score.toFixed(2)})`);
+```
+
+The AI sees these scores and weights content accordingly:
+- High quality score = more likely to be included in final digest
+- Multiple high-quality sources on same topic = combined into trend analysis
+- Low quality score = might be mentioned briefly or ignored entirely
+
+### The Real Power: Context-Aware Filtering
+
+Unlike rule-based filters, the AI understands **context and relevance**:
+
+```typescript
+// Rule-based filter sees:
+// Tweet A: "Just had coffee" (engagement: 50) → PASS
+// Tweet B: "OpenAI just released GPT-5" (engagement: 30) → FAIL
+
+// AI filter sees:
+// Tweet A: Low relevance for tech digest → IGNORE
+// Tweet B: Highly relevant despite lower engagement → PRIORITIZE
+```
+
+This is why AI costs are worth it - you're not just getting summarization, you're getting **intelligent content curation**.
 
 ## 🎯 AI Data Types and Interfaces
 
@@ -52,17 +194,27 @@ Let's define our AI integration types:
 // types/ai.ts
 
 export interface AIModelConfig {
-  provider: 'openai' | 'anthropic';
+  provider: 'openai' | 'anthropic' | 'google' | 'ollama';
   modelName: string;
   options: {
     temperature?: number;
     max_tokens?: number;
     top_p?: number;
+    // OpenAI-specific options
     reasoning_effort?: 'low' | 'medium' | 'high'; // OpenAI o1 models
+    // Anthropic-specific options
     thinking?: {  // Anthropic Claude thinking
       type: 'enabled' | 'disabled';
       budgetTokens?: number;
     };
+    // Google Gemini-specific options
+    safetySettings?: Array<{
+      category: string;
+      threshold: string;
+    }>;
+    // Ollama-specific options
+    baseURL?: string; // Custom Ollama server URL
+    keepAlive?: string; // Keep model loaded in memory
   };
 }
 
@@ -185,13 +337,91 @@ export interface ContentAnalysis {
 
 ## 🤖 Building the AI Service
 
-Now let's create our unified AI service that works with both OpenAI and Anthropic:
+Let's first make sure we have all of the packages we need and update our scripts to test when complete:
+
+**Package dependencies needed:**
+```bash
+# Core AI SDK
+npm install ai
+
+# Provider-specific packages
+npm install @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google
+npm install ollama-ai-provider
+
+# TypeScript types
+npm install --save-dev @types/node
+```
+
+**Package.json scripts to add:**
+```json
+{
+  "scripts": {
+    "test:ai": "npm run script scripts/test/test-ai.ts",
+    "test:ai:openai": "npm run script scripts/test/test-ai.ts -- --provider=openai",
+    "test:ai:claude": "npm run script scripts/test/test-ai.ts -- --provider=anthropic",
+    "test:ai:gemini": "npm run script scripts/test/test-ai.ts -- --provider=google",
+    "test:ai:ollama": "npm run script scripts/test/test-ai.ts -- --provider=ollama"
+  }
+}
+```
+
+**Environment variables needed:**
+
+### For Cloud Providers:
+```env
+# OpenAI (Required for OpenAI models)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Anthropic (Required for Claude models)  
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# Google (Required for Gemini models)
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key_here
+```
+
+### For Local Provider (Ollama):
+```env
+# Optional: Custom Ollama server URL (defaults to http://localhost:11434)
+OLLAMA_BASE_URL=http://localhost:11434
+
+# No API key needed for Ollama - it runs locally!
+```
+
+### Getting API Keys:
+
+**Google Gemini API Key:**
+1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Click "Create API Key"
+3. Copy the generated key to your `.env.local` file
+
+**Ollama Setup:**
+```bash
+# Install Ollama (macOS/Linux)
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Or on macOS with Homebrew
+brew install ollama
+
+# Start Ollama server
+ollama serve
+
+# Pull a model (in another terminal)
+ollama pull llama3.1:8b  # Good balance of performance/speed
+ollama pull qwen2.5:7b   # Alternative option
+
+# Verify it's working
+ollama list
+```
+
+Now let's create our unified AI service that works with our A.I. providers:
 
 ```typescript
 // lib/ai/ai-service.ts
 
 import { openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
+import { google } from '@ai-sdk/google';
+import { ollama } from 'ollama-ai-provider';
 import { generateText, generateObject } from 'ai';
 import { 
   AIModelConfig, 
@@ -208,7 +438,7 @@ export class AIService {
   private static instance: AIService;
   private currentConfig: AIModelConfig;
 
-  // Default configurations
+  // Default configurations for all 4 providers
   private static readonly DEFAULT_OPENAI_CONFIG: AIModelConfig = {
     provider: 'openai',
     modelName: 'gpt-4o',
@@ -228,6 +458,36 @@ export class AIService {
         type: 'enabled',
         budgetTokens: 20000,
       }
+    }
+  };
+
+  private static readonly DEFAULT_GOOGLE_CONFIG: AIModelConfig = {
+    provider: 'google',
+    modelName: 'gemini-1.5-pro',
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+      safetySettings: [
+        {
+          category: 'HARM_CATEGORY_HATE_SPEECH',
+          threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+        },
+        {
+          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+          threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+        }
+      ]
+    }
+  };
+
+  private static readonly DEFAULT_OLLAMA_CONFIG: AIModelConfig = {
+    provider: 'ollama',
+    modelName: 'llama3.1:8b', // 8B model for good balance of speed/quality
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+      baseURL: 'http://localhost:11434', // Default Ollama server
+      keepAlive: '5m' // Keep model loaded for 5 minutes
     }
   };
 
@@ -278,6 +538,30 @@ export class AIService {
   }
 
   /**
+   * Switch to Google Gemini
+   */
+  public useGemini(modelName?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_GOOGLE_CONFIG,
+      modelName: modelName || AIService.DEFAULT_GOOGLE_CONFIG.modelName
+    });
+  }
+
+  /**
+   * Switch to Ollama (local)
+   */
+  public useOllama(modelName?: string, baseURL?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_OLLAMA_CONFIG,
+      modelName: modelName || AIService.DEFAULT_OLLAMA_CONFIG.modelName,
+      options: {
+        ...AIService.DEFAULT_OLLAMA_CONFIG.options,
+        ...(baseURL && { baseURL })
+      }
+    });
+  }
+
+  /**
    * Main analysis method - analyzes content and generates insights
    */
   async analyzeContent(request: AIAnalysisRequest): Promise<AIAnalysisResponse> {
@@ -318,7 +602,7 @@ export class AIService {
         processing_time_ms: processingTime
       };
 
-    } catch (error) {
+    } catch (error: any) {
       progress.fail(`AI analysis failed: ${error.message}`);
       logger.error('AI analysis failed', { 
         error: error.message,
@@ -330,50 +614,74 @@ export class AIService {
   }
 
   /**
-   * Prepare content for AI analysis (filtering and formatting)
+   * Prepare content for AI analysis with quality signals for intelligent filtering
+   * 
+   * This method doesn't just format content - it provides the AI with key signals
+   * to make intelligent filtering decisions during content analysis.
    */
   private prepareContentForAnalysis(content: any): string {
     const sections: string[] = [];
 
-    // Add tweets if available
+    // Add tweets with quality signals for AI filtering
     if (content.tweets?.length > 0) {
       sections.push('## TWITTER/X CONTENT');
+      sections.push(`*Note: ${content.tweets.length} tweets passed rule-based filtering. Focus on highest quality and most relevant items.*`);
+      sections.push('');
+      
       content.tweets.forEach((tweet: any, index: number) => {
         sections.push(`### Tweet ${index + 1}`);
         sections.push(`**Author:** @${tweet.author}`);
         sections.push(`**Date:** ${tweet.created_at}`);
+        
+        // Quality signals that guide AI filtering decisions
         sections.push(`**Engagement:** ${tweet.engagement_score} (Quality: ${tweet.quality_score.toFixed(2)})`);
+        sections.push(`**Priority:** ${tweet.engagement_score > 100 ? 'HIGH' : tweet.engagement_score > 50 ? 'MEDIUM' : 'LOW'}`);
+        
         sections.push(`**Content:** ${tweet.text}`);
         sections.push(`**URL:** ${tweet.url}`);
         sections.push('');
       });
     }
 
-    // Add Telegram messages if available
+    // Add Telegram messages with filtering guidance
     if (content.telegram_messages?.length > 0) {
       sections.push('## TELEGRAM CONTENT');
+      sections.push(`*Note: ${content.telegram_messages.length} messages from insider channels. Prioritize unique insights and breaking news.*`);
+      sections.push('');
+      
       content.telegram_messages.forEach((msg: any, index: number) => {
         sections.push(`### Message ${index + 1}`);
         sections.push(`**Channel:** ${msg.channel}`);
         sections.push(`**Author:** ${msg.author || 'Unknown'}`);
         sections.push(`**Date:** ${msg.message_date}`);
+        
+        // Quality signals for AI filtering
         sections.push(`**Views:** ${msg.views} (Quality: ${msg.quality_score.toFixed(2)})`);
+        sections.push(`**Signal Strength:** ${msg.views > 1000 ? 'STRONG' : msg.views > 500 ? 'MEDIUM' : 'WEAK'}`);
+        
         sections.push(`**Content:** ${msg.text}`);
         sections.push(`**URL:** ${msg.url}`);
         sections.push('');
       });
     }
 
-    // Add RSS articles if available
+    // Add RSS articles with relevance scoring
     if (content.rss_articles?.length > 0) {
       sections.push('## RSS ARTICLES');
+      sections.push(`*Note: ${content.rss_articles.length} articles from news sources. Focus on breaking news and unique analysis.*`);
+      sections.push('');
+      
       content.rss_articles.forEach((article: any, index: number) => {
         sections.push(`### Article ${index + 1}`);
         sections.push(`**Title:** ${article.title}`);
         sections.push(`**Source:** ${article.source}`);
         sections.push(`**Author:** ${article.author || 'Unknown'}`);
         sections.push(`**Date:** ${article.published_at}`);
-        sections.push(`**Quality:** ${article.quality_score.toFixed(2)}`);
+        
+        // Quality signals for AI filtering decisions
+        sections.push(`**Quality Score:** ${article.quality_score.toFixed(2)}`);
+        sections.push(`**Content Type:** ${article.quality_score > 0.8 ? 'PREMIUM ANALYSIS' : article.quality_score > 0.6 ? 'STANDARD NEWS' : 'BRIEF UPDATE'}`);
+        
         sections.push(`**Summary:** ${article.description}`);
         if (article.content) {
           sections.push(`**Content:** ${article.content.substring(0, 1000)}${article.content.length > 1000 ? '...' : ''}`);
@@ -396,18 +704,97 @@ export class AIService {
   }
 
   /**
-   * Build analysis prompt based on request type
+   * Call the appropriate AI model based on current configuration
+   */
+  private async callAIModel(prompt: string, outputFormat: string = 'json'): Promise<any> {
+    const { provider, modelName, options } = this.currentConfig;
+
+    const baseOptions = {
+      temperature: options.temperature || 0.7,
+      maxTokens: options.max_tokens || 2000,
+    };
+
+    try {
+      switch (provider) {
+        case 'openai':
+          return await generateText({
+            model: openai(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.reasoning_effort && { reasoningEffort: options.reasoning_effort })
+          });
+
+        case 'anthropic':
+          return await generateText({
+            model: anthropic(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.thinking && {
+              experimental_toolCallMode: 'json',
+              experimental_thinking: options.thinking.type === 'enabled',
+              ...(options.thinking.budgetTokens && {
+                experimental_thinkingBudgetTokens: options.thinking.budgetTokens
+              })
+            })
+          });
+
+        case 'google':
+          return await generateText({
+            model: google(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.safetySettings && { safetySettings: options.safetySettings })
+          });
+
+        case 'ollama':
+          return await generateText({
+            model: ollama(modelName),
+            prompt,
+            ...baseOptions
+          });
+
+        default:
+          throw new Error(`Unsupported AI provider: ${provider}`);
+      }
+    } catch (error: any) {
+      // Add provider-specific error handling
+      if (provider === 'ollama' && error?.message?.includes('ECONNREFUSED')) {
+        throw new Error('Ollama server not running. Start it with: ollama serve');
+      }
+      if (provider === 'google' && error?.message?.includes('API_KEY_INVALID')) {
+        throw new Error('Invalid Google API key. Check GOOGLE_GENERATIVE_AI_API_KEY environment variable');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Build analysis prompt that guides AI filtering and content selection
+   * 
+   * This prompt is crucial - it instructs the AI to act as an intelligent filter,
+   * not just a summarizer. The AI will select, prioritize, and curate content.
    */
   private buildAnalysisPrompt(request: AIAnalysisRequest, preparedContent: string): string {
-    const baseInstructions = `You are an expert content analyst specializing in technology, finance, and current events. Your task is to analyze the provided content and generate actionable insights.
+    const baseInstructions = `You are an expert content analyst and curator specializing in technology, finance, and current events. 
+
+Your job has TWO phases:
+1. INTELLIGENT FILTERING: Select only the most valuable, relevant, and newsworthy content
+2. ANALYSIS: Generate actionable insights from your curated selection
+
+CONTENT CURATION GUIDELINES:
+- IGNORE repetitive, off-topic, or low-value content
+- PRIORITIZE breaking news, unique insights, and emerging trends
+- COMBINE multiple sources discussing the same topic into single insights
+- FOCUS on content with high engagement scores and quality ratings
+- SELECT content that provides genuine value to readers
 
 ANALYSIS REQUIREMENTS:
-1. Focus on the most significant trends and patterns
-2. Prioritize high-quality, high-engagement content
-3. Identify emerging themes and topics
-4. Provide balanced, objective analysis
+1. Focus on the most significant trends and patterns from your curated selection
+2. Prioritize high-quality, high-engagement content you've selected
+3. Identify emerging themes from your filtered content
+4. Provide balanced, objective analysis based on your curation
 5. Include confidence levels for your assessments
-6. Cite specific examples to support your insights
+6. Cite specific examples from the content you chose to include
 
 OUTPUT FORMAT: Return a valid JSON object with the following structure:
 {
@@ -480,82 +867,7 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
     return `${baseInstructions}\n${specificInstructions}\n\nCONTENT TO ANALYZE:\n\n${preparedContent}`;
   }
 
-  /**
-   * Call the appropriate AI model
-   */
-  private async callAIModel(prompt: string, outputFormat: string = 'json'): Promise<any> {
-    const startTime = Date.now();
-    
-    try {
-      if (this.currentConfig.provider === 'openai') {
-        return await this.callOpenAI(prompt, outputFormat);
-      } else {
-        return await this.callAnthropic(prompt, outputFormat);
-      }
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      logger.error(`AI model call failed after ${duration}ms`, {
-        provider: this.currentConfig.provider,
-        model: this.currentConfig.modelName,
-        error: error.message
-      });
-      throw error;
-    }
-  }
 
-  /**
-   * Call OpenAI API
-   */
-  private async callOpenAI(prompt: string, outputFormat: string): Promise<any> {
-    const model = openai(this.currentConfig.modelName);
-    
-    const result = await generateText({
-      model,
-      prompt,
-      temperature: this.currentConfig.options.temperature || 0.7,
-      maxTokens: this.currentConfig.options.max_tokens || 2000,
-      topP: this.currentConfig.options.top_p,
-    });
-
-    return {
-      text: result.text,
-      usage: result.usage,
-      reasoning_time_ms: result.response?.usage?.completion_tokens_details?.reasoning_tokens ? 
-        (result.response.usage.completion_tokens_details.reasoning_tokens * 50) : undefined // Rough estimate
-    };
-  }
-
-  /**
-   * Call Anthropic API
-   */
-  private async callAnthropic(prompt: string, outputFormat: string): Promise<any> {
-    const model = anthropic(this.currentConfig.modelName);
-    
-    const modelOptions: any = {
-      temperature: this.currentConfig.options.temperature || 0.7,
-      maxTokens: this.currentConfig.options.max_tokens || 2000,
-    };
-
-    // Add thinking configuration for Claude models
-    if (this.currentConfig.options.thinking?.type === 'enabled') {
-      modelOptions.thinking = {
-        budgetTokens: this.currentConfig.options.thinking.budgetTokens || 20000
-      };
-    }
-
-    const result = await generateText({
-      model,
-      prompt,
-      ...modelOptions
-    });
-
-    return {
-      text: result.text,
-      usage: result.usage,
-      reasoning_time_ms: result.response?.usage?.cache_read_input_tokens ? 
-        (result.response.usage.cache_read_input_tokens * 2) : undefined // Rough estimate
-    };
-  }
 
   /**
    * Parse and validate AI response
@@ -593,7 +905,7 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
 
       return parsed as DigestAnalysis;
 
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Failed to parse AI response', { error: error.message, response: responseText.substring(0, 500) });
       
       // Fallback response
@@ -653,6 +965,12 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
       throw new Error('ANTHROPIC_API_KEY environment variable is required for Anthropic');
     }
 
+    if (provider === 'google' && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      throw new Error('GOOGLE_GENERATIVE_AI_API_KEY environment variable is required for Google Gemini');
+    }
+
+    // Note: Ollama doesn't require API key validation as it's a local service
+
     logger.debug('AI configuration validated', { provider, modelName });
   }
 
@@ -693,6 +1011,7 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
 
       const response = await this.analyzeContent(testRequest);
       logger.info(`AI connection test successful: ${this.currentConfig.provider}:${this.currentConfig.modelName}`);
+      logger.info(response);
       return true;
 
     } catch (error) {
@@ -701,6 +1020,7 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
     }
   }
 }
+
 ```
 
 ## 🧪 Testing Your AI Integration
@@ -717,149 +1037,362 @@ import { AIService } from '../../lib/ai/ai-service';
 import { AIAnalysisRequest } from '../../types/ai';
 import logger from '../../lib/logger';
 
+// Command line argument parsing
+const args = process.argv.slice(2);
+const providerArg = args.find(arg => arg.startsWith('--provider='));
+const selectedProvider = providerArg ? providerArg.split('=')[1] : 'all';
+
+// Provider configurations for testing
+const PROVIDER_CONFIGS = {
+  openai: {
+    name: 'OpenAI',
+    method: 'useOpenAI',
+    model: 'gpt-4o',
+    envVar: 'OPENAI_API_KEY',
+    costRates: { prompt: 0.0000025, completion: 0.00001 }
+  },
+  anthropic: {
+    name: 'Anthropic Claude',
+    method: 'useClaude', 
+    model: 'claude-3-5-sonnet-20241022',
+    envVar: 'ANTHROPIC_API_KEY',
+    costRates: { prompt: 0.000003, completion: 0.000015 }
+  },
+  google: {
+    name: 'Google Gemini',
+    method: 'useGemini',
+    model: 'gemini-1.5-pro',
+    envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    costRates: { prompt: 0.00000125, completion: 0.000005 }
+  },
+  ollama: {
+    name: 'Ollama (Local)',
+    method: 'useOllama', 
+    model: 'llama3.1:8b',
+    envVar: null, // No API key required
+    costRates: { prompt: 0, completion: 0 } // Local model, no cost
+  }
+} as const;
+
 async function testAIIntegration() {
   console.log('🤖 Testing AI Integration...\n');
 
+  if (selectedProvider !== 'all') {
+    console.log(`🎯 Testing specific provider: ${selectedProvider.toUpperCase()}\n`);
+  }
+
   try {
-    // Test 1: OpenAI Connection
-    console.log('1. Testing OpenAI Connection:');
-    const openaiService = AIService.getInstance();
-    openaiService.useOpenAI('gpt-4o');
-    
-    const openaiConnected = await openaiService.testConnection();
-    if (openaiConnected) {
-      console.log('✅ OpenAI connection successful');
-    } else {
-      console.log('❌ OpenAI connection failed');
+    const aiService = AIService.getInstance();
+    const testResults: Array<{
+      provider: string;
+      success: boolean;
+      response?: any;
+      error?: string;
+      cost?: number;
+    }> = [];
+
+    // Determine which providers to test
+    const providersToTest = selectedProvider === 'all' 
+      ? Object.keys(PROVIDER_CONFIGS)
+      : [selectedProvider];
+
+    // Validate provider selection
+    for (const provider of providersToTest) {
+      if (!(provider in PROVIDER_CONFIGS)) {
+        console.error(`❌ Unknown provider: ${provider}`);
+        console.log('Available providers: openai, anthropic, google, ollama');
+        process.exit(1);
+      }
     }
 
-    // Test 2: Anthropic Connection
-    console.log('\n2. Testing Anthropic Connection:');
-    openaiService.useClaude('claude-3-5-sonnet-20241022');
+    console.log('📋 Environment Check:');
+    let hasAllRequiredKeys = true;
     
-    const anthropicConnected = await openaiService.testConnection();
-    if (anthropicConnected) {
-      console.log('✅ Anthropic connection successful');
-    } else {
-      console.log('❌ Anthropic connection failed');
+    for (const provider of providersToTest) {
+      const config = PROVIDER_CONFIGS[provider as keyof typeof PROVIDER_CONFIGS];
+      if (config.envVar) {
+        const hasKey = !!process.env[config.envVar];
+        console.log(`   ${config.name}: ${hasKey ? '✅' : '❌'} (${config.envVar})`);
+        if (!hasKey) hasAllRequiredKeys = false;
+      } else {
+        console.log(`   ${config.name}: ✅ (No API key required)`);
+      }
     }
 
-    // Test 3: Content Analysis
-    console.log('\n3. Testing Content Analysis:');
-    
-    const testContent: AIAnalysisRequest = {
-      content: {
-        tweets: [
-          {
-            id: 'tweet1',
-            text: 'Breaking: New AI model shows unprecedented capabilities in reasoning and mathematics',
-            author: 'AI_News',
-            created_at: '2024-01-15T10:00:00Z',
-            engagement_score: 150,
-            quality_score: 0.9,
-            url: 'https://twitter.com/AI_News/status/1'
-          },
-          {
-            id: 'tweet2', 
-            text: 'The future of work is changing rapidly with AI automation. Companies need to adapt now.',
-            author: 'TechExpert',
-            created_at: '2024-01-15T11:00:00Z',
-            engagement_score: 85,
-            quality_score: 0.8,
-            url: 'https://twitter.com/TechExpert/status/2'
-          }
-        ],
-        rss_articles: [
-          {
-            id: 'article1',
-            title: 'The Rise of Large Language Models in Enterprise',
-            description: 'How companies are integrating AI into their workflows',
-            content: 'Large language models are transforming how businesses operate...',
-            author: 'Jane Smith',
-            published_at: '2024-01-15T09:00:00Z',
-            source: 'TechCrunch',
-            quality_score: 0.95,
-            url: 'https://techcrunch.com/article1'
-          }
-        ],
-        timeframe: {
-          from: '2024-01-15T00:00:00Z',
-          to: '2024-01-15T23:59:59Z'
-        },
-        metadata: {
-          total_sources: 3,
-          source_breakdown: {
-            twitter: 2,
-            telegram: 0,
-            rss: 1
-          }
+    if (!hasAllRequiredKeys) {
+      console.log('\n💡 Missing API keys. Add them to .env.local:');
+      console.log('   OPENAI_API_KEY=your_openai_key');
+      console.log('   ANTHROPIC_API_KEY=your_anthropic_key');  
+      console.log('   GOOGLE_GENERATIVE_AI_API_KEY=your_google_key');
+      console.log('   (Ollama requires no API key, just local server)');
+    }
+
+    // Test each provider
+    for (const [index, provider] of providersToTest.entries()) {
+      const config = PROVIDER_CONFIGS[provider as keyof typeof PROVIDER_CONFIGS];
+      
+      console.log(`\n${index + 1}. Testing ${config.name} Connection:`);
+      
+      try {
+        // Configure the service for this provider
+        (aiService as any)[config.method](config.model);
+        
+        // Test connection
+        const connected = await aiService.testConnection();
+        if (connected) {
+          console.log(`✅ ${config.name} connection successful`);
+        } else {
+          console.log(`❌ ${config.name} connection failed`);
+          testResults.push({ provider, success: false, error: 'Connection test failed' });
+          continue;
         }
-      },
-      analysisType: 'digest'
-    };
 
-    // Test with Claude (current model)
-    console.log('   Testing with Claude...');
-    const claudeResponse = await openaiService.analyzeContent(testContent);
+        // Test content analysis if connection successful
+        console.log(`   Testing content analysis...`);
+        const analysisResponse = await aiService.analyzeContent(getTestContent());
+        
+        console.log(`✅ ${config.name} Analysis Complete:`);
+        console.log(`   Title: "${analysisResponse.analysis.title}"`);
+        console.log(`   Key Insights: ${analysisResponse.analysis.key_insights.length} insights`);
+        console.log(`   Trending Topics: ${analysisResponse.analysis.trending_topics.length} topics`);
+        console.log(`   Confidence: ${analysisResponse.analysis.confidence_score.toFixed(2)}`);
+        console.log(`   Tokens: ${analysisResponse.token_usage.total_tokens} (Prompt: ${analysisResponse.token_usage.prompt_tokens}, Completion: ${analysisResponse.token_usage.completion_tokens})`);
+        console.log(`   Processing Time: ${(analysisResponse.processing_time_ms / 1000).toFixed(2)}s`);
+        
+        // Calculate cost
+        const cost = calculateCost(analysisResponse.token_usage, config.costRates);
+        if (cost > 0) {
+          console.log(`   Estimated Cost: $${cost.toFixed(6)}`);
+        } else {
+          console.log(`   Cost: Free (local model)`);
+        }
+
+        testResults.push({ 
+          provider, 
+          success: true, 
+          response: analysisResponse,
+          cost 
+        });
+
+      } catch (error: any) {
+        console.log(`❌ ${config.name} test failed: ${error.message}`);
+        
+        // Provider-specific error guidance
+        if (provider === 'ollama' && error.message.includes('Ollama server not running')) {
+          console.log('   💡 Start Ollama server with: ollama serve');
+          console.log('   💡 Then pull the model with: ollama pull llama3.1:8b');
+        } else if (error.message.includes('API_KEY') || error.message.includes('API key')) {
+          console.log(`   💡 Check your ${config.envVar} environment variable`);
+        }
+        
+        testResults.push({ 
+          provider, 
+          success: false, 
+          error: error.message 
+        });
+      }
+    }
+
+    // Summary
+    console.log('\n📊 Test Summary:');
+    const successful = testResults.filter(r => r.success);
+    const failed = testResults.filter(r => !r.success);
     
-    console.log(`✅ Claude Analysis Complete:`);
-    console.log(`   Title: "${claudeResponse.analysis.title}"`);
-    console.log(`   Key Insights: ${claudeResponse.analysis.key_insights.length} insights`);
-    console.log(`   Trending Topics: ${claudeResponse.analysis.trending_topics.length} topics`);
-    console.log(`   Confidence: ${claudeResponse.analysis.confidence_score.toFixed(2)}`);
-    console.log(`   Tokens: ${claudeResponse.token_usage.total_tokens} (Prompt: ${claudeResponse.token_usage.prompt_tokens}, Completion: ${claudeResponse.token_usage.completion_tokens})`);
-    console.log(`   Processing Time: ${(claudeResponse.processing_time_ms / 1000).toFixed(2)}s`);
+    console.log(`   ✅ Successful: ${successful.length}/${testResults.length}`);
+    console.log(`   ❌ Failed: ${failed.length}/${testResults.length}`);
 
-    // Test with OpenAI
-    console.log('\n   Testing with OpenAI...');
-    openaiService.useOpenAI('gpt-4o');
-    const openaiResponse = await openaiService.analyzeContent(testContent);
+    if (successful.length > 0) {
+      console.log('\n💰 Cost Comparison (for this test):');
+      successful.forEach(result => {
+        const config = PROVIDER_CONFIGS[result.provider as keyof typeof PROVIDER_CONFIGS];
+        if (result.cost! > 0) {
+          console.log(`   ${config.name}: $${result.cost!.toFixed(6)}`);
+        } else {
+          console.log(`   ${config.name}: Free (local)`);
+        }
+      });
+    }
+
+    if (successful.length >= 2) {
+      console.log('\n🔍 Response Quality Comparison:');
+      successful.slice(0, 2).forEach(result => {
+        const config = PROVIDER_CONFIGS[result.provider as keyof typeof PROVIDER_CONFIGS];
+        console.log(`   ${config.name}: "${result.response!.analysis.executive_summary.substring(0, 100)}..."`);
+      });
+    }
+
+    if (failed.length > 0) {
+      console.log('\n❌ Failed Providers:');
+      failed.forEach(result => {
+        const config = PROVIDER_CONFIGS[result.provider as keyof typeof PROVIDER_CONFIGS];
+        console.log(`   ${config.name}: ${result.error}`);
+      });
+    }
+
+    console.log('\n🎉 AI integration test completed!');
     
-    console.log(`✅ OpenAI Analysis Complete:`);
-    console.log(`   Title: "${openaiResponse.analysis.title}"`);
-    console.log(`   Key Insights: ${openaiResponse.analysis.key_insights.length} insights`);
-    console.log(`   Trending Topics: ${openaiResponse.analysis.trending_topics.length} topics`);
-    console.log(`   Confidence: ${openaiResponse.analysis.confidence_score.toFixed(2)}`);
-    console.log(`   Tokens: ${openaiResponse.token_usage.total_tokens} (Prompt: ${openaiResponse.token_usage.prompt_tokens}, Completion: ${openaiResponse.token_usage.completion_tokens})`);
-    console.log(`   Processing Time: ${(openaiResponse.processing_time_ms / 1000).toFixed(2)}s`);
+    if (successful.length > 0) {
+      console.log('\n💡 Provider Recommendations:');
+      console.log('   - OpenAI: Fast, cost-effective, good general performance');
+      console.log('   - Anthropic: Best for complex analysis and reasoning');
+      console.log('   - Google Gemini: Good balance of speed and quality');
+      console.log('   - Ollama: Free local inference, privacy-focused');
+    }
 
-    // Test 4: Cost Analysis
-    console.log('\n4. Cost Analysis:');
-    
-    const claudeCost = (claudeResponse.token_usage.prompt_tokens * 0.000003) + 
-                      (claudeResponse.token_usage.completion_tokens * 0.000015);
-    const openaiCost = (openaiResponse.token_usage.prompt_tokens * 0.0000025) + 
-                      (openaiResponse.token_usage.completion_tokens * 0.00001);
-    
-    console.log(`   Claude Cost: $${claudeCost.toFixed(4)}`);
-    console.log(`   OpenAI Cost: $${openaiCost.toFixed(4)}`);
-    console.log(`   Cost Difference: ${claudeCost > openaiCost ? 'Claude more expensive' : 'OpenAI more expensive'} by $${Math.abs(claudeCost - openaiCost).toFixed(4)}`);
+    // Exit with error code if all tests failed
+    if (successful.length === 0) {
+      process.exit(1);
+    }
 
-    // Test 5: Response Quality Comparison
-    console.log('\n5. Response Quality Comparison:');
-    console.log(`   Claude Executive Summary: "${claudeResponse.analysis.executive_summary.substring(0, 100)}..."`);
-    console.log(`   OpenAI Executive Summary: "${openaiResponse.analysis.executive_summary.substring(0, 100)}..."`);
-
-    console.log('\n🎉 AI integration test completed successfully!');
-    console.log('\n💡 Both models are working. Choose based on your needs:');
-    console.log('   - Claude: Better for complex analysis and reasoning');
-    console.log('   - OpenAI: Faster and often more cost-effective');
-
-  } catch (error) {
+  } catch (error: any) {
     logger.error('AI integration test failed', error);
     console.error('\n❌ Test failed:', error.message);
-    
-    if (error.message.includes('API_KEY')) {
-      console.log('\n💡 Make sure you have valid API keys in .env.local:');
-      console.log('   OPENAI_API_KEY=your_openai_key');
-      console.log('   ANTHROPIC_API_KEY=your_anthropic_key');
-    }
-    
     process.exit(1);
   }
 }
 
+function getTestContent(): AIAnalysisRequest {
+  return {
+    content: {
+      tweets: [
+        {
+          id: 'tweet1',
+          text: 'Breaking: New AI model shows unprecedented capabilities in reasoning and mathematics',
+          author: 'AI_News',
+          created_at: '2024-01-15T10:00:00Z',
+          engagement_score: 150,
+          quality_score: 0.9,
+          url: 'https://twitter.com/AI_News/status/1'
+        },
+        {
+          id: 'tweet2', 
+          text: 'The future of work is changing rapidly with AI automation. Companies need to adapt now.',
+          author: 'TechExpert',
+          created_at: '2024-01-15T11:00:00Z',
+          engagement_score: 85,
+          quality_score: 0.8,
+          url: 'https://twitter.com/TechExpert/status/2'
+        }
+      ],
+      rss_articles: [
+        {
+          id: 'article1',
+          title: 'The Rise of Large Language Models in Enterprise',
+          description: 'How companies are integrating AI into their workflows',
+          content: 'Large language models are transforming how businesses operate...',
+          author: 'Jane Smith',
+          published_at: '2024-01-15T09:00:00Z',
+          source: 'TechCrunch',
+          quality_score: 0.95,
+          url: 'https://techcrunch.com/article1'
+        }
+      ],
+      timeframe: {
+        from: '2024-01-15T00:00:00Z',
+        to: '2024-01-15T23:59:59Z'
+      },
+      metadata: {
+        total_sources: 3,
+        source_breakdown: {
+          twitter: 2,
+          telegram: 0,
+          rss: 1
+        }
+      }
+    },
+    analysisType: 'digest'
+  };
+}
+
+function calculateCost(tokenUsage: any, rates: { prompt: number; completion: number }): number {
+  return (tokenUsage.prompt_tokens * rates.prompt) + (tokenUsage.completion_tokens * rates.completion);
+}
+
 testAIIntegration();
+```
+
+## 🧪 Testing All AI Providers
+
+Test each provider to find what works best for your use case:
+
+### Quick Provider Tests:
+```bash
+# Test OpenAI (requires API key)
+npm run test:ai:openai
+
+# Test Claude (requires API key)  
+npm run test:ai:claude
+
+# Test Gemini (requires API key, cheapest cloud option)
+npm run test:ai:gemini
+
+# Test Ollama (free, requires local setup)
+npm run test:ai:ollama
+```
+
+### Usage Examples in Your Code:
+
+```typescript
+// Example: Using different providers for different tasks
+import { AIService } from '../lib/ai/ai-service';
+
+const aiService = AIService.getInstance();
+
+// Use Ollama for development/testing (free)
+if (process.env.NODE_ENV === 'development') {
+  await aiService.useOllama('llama3.1:8b');
+}
+
+// Use Gemini for cost-effective production
+else if (process.env.AI_BUDGET === 'low') {
+  await aiService.useGemini('gemini-1.5-pro');
+}
+
+// Use Claude for highest quality analysis
+else if (process.env.AI_QUALITY === 'premium') {
+  await aiService.useClaude('claude-3-5-sonnet-20241022');
+}
+
+// Use OpenAI for balanced performance
+else {
+  await aiService.useOpenAI('gpt-4o');
+}
+
+// Now generate your digest
+const result = await aiService.analyzeContent(contentData);
+```
+
+### Performance & Cost Comparison:
+
+Based on our testing with typical digest content:
+
+| Provider | Cost/Digest | Speed | Quality | Best For |
+|----------|-------------|-------|---------|----------|
+| **Ollama** | Free | Medium | Good | Development, privacy |
+| **Gemini** | $0.05-0.25 | Fast | Very Good | Production, budget-conscious |
+| **Claude** | $0.15-0.75 | Fast | Excellent | Analysis-heavy, premium |
+| **OpenAI** | $0.10-0.50 | Fast | Excellent | Balanced, reliable |
+
+### Troubleshooting:
+
+**Ollama Issues:**
+```bash
+# If Ollama fails to connect
+ollama serve  # Make sure server is running
+
+# If model not found
+ollama pull llama3.1:8b  # Download the model first
+```
+
+**API Key Issues:**
+```bash
+# Verify your environment variables
+echo $OPENAI_API_KEY
+echo $ANTHROPIC_API_KEY  
+echo $GOOGLE_GENERATIVE_AI_API_KEY
+
+# Test API connectivity
+curl -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models
 ```
 
 ## 🎯 What We've Accomplished
@@ -879,7 +1412,7 @@ You now have a sophisticated AI integration system that:
 
 **⚠️ Common Pitfall:** Don't send too much content at once. AI models have context limits, and costs scale with token usage.
 
-**🔧 Performance Tip:** Use Claude for complex analysis and reasoning tasks, OpenAI for faster, more straightforward processing.
+**🔧 Performance Tip:** Experiment with the models to fit your performance needs. For example, some argue Claude is better for complex analysis and reasoning tasks, where OpenAI is faster, more straightforward processing.
 
 **💰 Cost Optimization:** Pre-filter low-quality content before sending to AI models to minimize token usage.
 
@@ -898,25 +1431,48 @@ You now have a sophisticated AI integration system that:
 // scripts/test/test-ai.ts - Comprehensive AI integration test with cost analysis
 ```
 
-**Package.json scripts to add:**
-```json
-{
-  "scripts": {
-    "test:ai": "npm run script scripts/test/test-ai.ts"
-  }
-}
+## 🔄 Complete AI Filtering Workflow Summary
+
+Now you understand the full content pipeline in your digest system:
+
+### The Complete Journey: Raw Data → Curated Insights
+
+```typescript
+// 1. Data Collection (Chapters 4-6)
+const rawTweets = await fetchTweets(); // 500+ tweets
+const rawTelegram = await fetchTelegram(); // 100+ messages  
+const rawRSS = await fetchRSS(); // 50+ articles
+
+// 2. Rule-Based Pre-Filtering (Chapter 4-6)
+const qualityTweets = tweetProcessor.filterTweets(rawTweets); // → 100 tweets
+const qualityTelegram = filterTelegramMessages(rawTelegram); // → 30 messages
+const qualityRSS = filterRSSArticles(rawRSS); // → 20 articles
+
+// 3. AI Intelligent Filtering & Analysis (Chapter 7)
+const digest = await aiService.generateDigestContent(
+  qualityTweets,    // AI selects ~15 most relevant tweets
+  qualityTelegram,  // AI selects ~8 most valuable messages  
+  qualityRSS        // AI selects ~5 most important articles
+);
+// Result: 28 pieces of high-value content → 1 actionable digest
 ```
 
-**Environment variables needed:**
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-```
+### Why This Two-Stage System is Powerful
 
-**Test your AI integration:**
-```bash
-npm run test:ai
-```
+**Without AI Filtering:** You'd get overwhelming, repetitive summaries of everything
+**With AI Filtering:** You get curated, synthesized insights from the most valuable content
+
+**Cost-Benefit Analysis (with 4 provider options):**
+- **Input:** 650+ raw items → 150 quality items → 28 curated insights
+- **Cost Range:** 
+  - Ollama: Free (after setup)
+  - Gemini: ~$0.05-0.25 per digest  
+  - OpenAI: ~$0.10-0.50 per digest
+  - Claude: ~$0.15-0.75 per digest
+- **Value:** Saves 2-3 hours of manual content review daily
+- **ROI:** 500-1000x time savings (even with premium providers)
+
+The AI doesn't just summarize - it **thinks, selects, combines, and prioritizes** like a human analyst would, regardless of which provider you choose.
 
 **Next up:** Chapter 8 will show you advanced AI techniques - building sophisticated prompts, handling different content types, and creating specialized analysis workflows. We'll also explore cost optimization strategies and advanced model features!
 
