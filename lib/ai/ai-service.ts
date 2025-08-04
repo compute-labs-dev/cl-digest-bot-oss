@@ -564,6 +564,31 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
   }
 
   /**
+   * Generate text from prompt (simplified interface for general use)
+   */
+  async generateText(options: { prompt: string; maxTokens?: number; temperature?: number }): Promise<{ text: string }> {
+    const originalTemp = this.currentConfig.options.temperature;
+    const originalMaxTokens = this.currentConfig.options.max_tokens;
+    
+    // Temporarily override options
+    if (options.temperature !== undefined) {
+      this.currentConfig.options.temperature = options.temperature;
+    }
+    if (options.maxTokens !== undefined) {
+      this.currentConfig.options.max_tokens = options.maxTokens;
+    }
+    
+    try {
+      const result = await this.callAIModel(options.prompt);
+      return { text: result.text };
+    } finally {
+      // Restore original options
+      this.currentConfig.options.temperature = originalTemp;
+      this.currentConfig.options.max_tokens = originalMaxTokens;
+    }
+  }
+
+  /**
    * Test AI connection
    */
   async testConnection(): Promise<boolean> {

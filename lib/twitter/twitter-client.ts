@@ -1,7 +1,7 @@
 // lib/twitter/twitter-client.ts
 
 import { TwitterApi, TwitterApiReadOnly, TweetV2, UserV2 } from 'twitter-api-v2';
-import { TwitterTweet, TwitterUser, TweetWithEngagement } from '../../types/twitter';
+import { TwitterUser, TweetWithEngagement } from '../../types/twitter';
 import { getXAccountConfig } from '../../config/data-sources-config';
 import { envConfig } from '../../config/environment';
 import logger from '../logger';

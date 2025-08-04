@@ -42,7 +42,7 @@ export class TelegramScraper {
         throw new Error(`Channel @${channelUsername} not found or is private`);
       }
 
-      let allMessages: TelegramMessage[] = [];
+      const allMessages: TelegramMessage[] = [];
       let hasMore = true;
       let offset = 0;
       let pageCount = 0;

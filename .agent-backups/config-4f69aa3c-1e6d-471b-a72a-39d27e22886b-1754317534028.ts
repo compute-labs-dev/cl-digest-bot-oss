@@ -62,9 +62,11 @@ export const rssConfig = {
   } as RssFeedConfig,
   
   feedOverrides: {
+    // High-volume tech blogs
     'https://techcrunch.com/feed/': { articlesPerFeed: 10 },
-    'https://arxiv.org/rss/cs.AI': { articlesPerFeed: 10 },
-    'https://feeds.feedburner.com/ycombinator': { articlesPerFeed: 10 }
+    
+    // Academic feeds - longer cache OK
+    'https://arxiv.org/rss/cs.AI': { cacheHours: 12 },
   } as Record<string, Partial<RssFeedConfig>>
 };
 
