@@ -1,0 +1,96 @@
+{
+  "environment": "development",
+  "scheduling": {
+    "digest_pipeline": {
+      "enabled": true,
+      "cron_pattern": "*/15 * * * *",
+      "timezone": "UTC",
+      "max_concurrent_runs": 1,
+      "retry_attempts": 3,
+      "retry_delay_ms": 60000
+    },
+    "cache_cleanup": {
+      "enabled": true,
+      "cron_pattern": "0 2 * * *",
+      "retention_days": 7
+    },
+    "health_check": {
+      "enabled": true,
+      "interval_minutes": 5
+    }
+  },
+  "data_sources": {
+    "twitter": {
+      "enabled": true,
+      "accounts": [
+        "openai",
+        "anthropicai"
+      ],
+      "api_rate_limit_buffer": 5000
+    },
+    "telegram": {
+      "enabled": true,
+      "channels": [
+        "telegram",
+        "durov"
+      ],
+      "scraping_delay_ms": 2000
+    },
+    "rss": {
+      "enabled": true,
+      "feeds": [
+        "https://techcrunch.com/feed/",
+        "https://www.theverge.com/rss/index.xml"
+      ],
+      "timeout_ms": 15000
+    }
+  },
+  "ai": {
+    "default_provider": "anthropic",
+    "model_configs": {
+      "routine": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "max_tokens": 1500,
+        "temperature": 0.7
+      },
+      "important": {
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 2000,
+        "temperature": 0.7
+      },
+      "critical": {
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 3000,
+        "temperature": 0.3
+      }
+    },
+    "cost_limits": {
+      "daily_budget": 1,
+      "per_analysis_limit": 0.25
+    }
+  },
+  "quality": {
+    "min_quality_threshold": 0.6,
+    "max_content_age_hours": 24,
+    "min_engagement_threshold": 5
+  },
+  "distribution": {
+    "slack": {
+      "enabled": true,
+      "channel_id": "your_slack_channel_id"
+    },
+    "webhook_notifications": {
+      "enabled": false,
+      "endpoints": []
+    }
+  },
+  "monitoring": {
+    "health_checks": true,
+    "alert_webhooks": [],
+    "log_level": "debug",
+    "metrics_retention_days": 30
+  }
+}
