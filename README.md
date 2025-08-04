@@ -2,6 +2,14 @@
 
 Learn to build a production-ready AI digest bot from scratch in this comprehensive tutorial series. We'll create a system that aggregates content from Twitter/X, Telegram, and RSS feeds, then uses AI to generate intelligent summaries and insights.
 
+<!-- Demo Video -->
+<p align="center">
+  <video src="/cl_digest_oss_demo.mp4" controls width="600">
+    Your browser does not support the video tag.
+  </video>
+</p>
+
+
 ## What You'll Build
 
 By the end of this tutorial, you'll have created:
