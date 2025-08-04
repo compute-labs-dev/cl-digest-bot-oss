@@ -11,6 +11,10 @@
     "test:advanced-ai": "npm run script scripts/test/test-advanced-ai.ts",
     "test:automation": "npm run script scripts/test/test-automation-complete.ts",
     "test:ai": "npm run script scripts/test/test-ai.ts",
+    "test:ai:openai": "npm run script scripts/test/test-ai.ts -- --provider=openai",
+    "test:ai:claude": "npm run script scripts/test/test-ai.ts -- --provider=anthropic",
+    "test:ai:gemini": "npm run script scripts/test/test-ai.ts -- --provider=google",
+    "test:ai:ollama": "npm run script scripts/test/test-ai.ts -- --provider=ollama",
     "test:config": "npm run script scripts/test/test-config.ts",
     "test:db": "npm run script scripts/db/test-connection.ts",
     "test:digest": "npm run script scripts/digest/test-digest.ts",
@@ -20,6 +24,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.12",
+    "@ai-sdk/google": "^1.2.22",
     "@ai-sdk/openai": "^1.3.23",
     "@slack/web-api": "^7.9.3",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
