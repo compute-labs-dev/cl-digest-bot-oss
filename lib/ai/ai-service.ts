@@ -2,6 +2,8 @@
 
 import { openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
+import { google } from '@ai-sdk/google';
+import { ollama } from 'ollama-ai-provider';
 import { generateText, generateObject } from 'ai';
 import { 
   AIModelConfig, 
@@ -18,7 +20,7 @@ export class AIService {
   private static instance: AIService;
   private currentConfig: AIModelConfig;
 
-  // Default configurations
+  // Default configurations for all 4 providers
   private static readonly DEFAULT_OPENAI_CONFIG: AIModelConfig = {
     provider: 'openai',
     modelName: 'gpt-4o',
@@ -38,6 +40,36 @@ export class AIService {
         type: 'enabled',
         budgetTokens: 20000,
       }
+    }
+  };
+
+  private static readonly DEFAULT_GOOGLE_CONFIG: AIModelConfig = {
+    provider: 'google',
+    modelName: 'gemini-1.5-pro',
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+      safetySettings: [
+        {
+          category: 'HARM_CATEGORY_HATE_SPEECH',
+          threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+        },
+        {
+          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+          threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+        }
+      ]
+    }
+  };
+
+  private static readonly DEFAULT_OLLAMA_CONFIG: AIModelConfig = {
+    provider: 'ollama',
+    modelName: 'llama3.1:8b', // 8B model for good balance of speed/quality
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+      baseURL: 'http://localhost:11434', // Default Ollama server
+      keepAlive: '5m' // Keep model loaded for 5 minutes
     }
   };
 
@@ -88,6 +120,30 @@ export class AIService {
   }
 
   /**
+   * Switch to Google Gemini
+   */
+  public useGemini(modelName?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_GOOGLE_CONFIG,
+      modelName: modelName || AIService.DEFAULT_GOOGLE_CONFIG.modelName
+    });
+  }
+
+  /**
+   * Switch to Ollama (local)
+   */
+  public useOllama(modelName?: string, baseURL?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_OLLAMA_CONFIG,
+      modelName: modelName || AIService.DEFAULT_OLLAMA_CONFIG.modelName,
+      options: {
+        ...AIService.DEFAULT_OLLAMA_CONFIG.options,
+        ...(baseURL && { baseURL })
+      }
+    });
+  }
+
+  /**
    * Main analysis method - analyzes content and generates insights
    */
   async analyzeContent(request: AIAnalysisRequest): Promise<AIAnalysisResponse> {
@@ -129,10 +185,9 @@ export class AIService {
       };
 
     } catch (error: any) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      progress.fail(`AI analysis failed: ${errorMessage}`);
+      progress.fail(`AI analysis failed: ${error.message}`);
       logger.error('AI analysis failed', { 
-        error: errorMessage,
+        error: error.message,
         provider: this.currentConfig.provider,
         model: this.currentConfig.modelName 
       });
@@ -141,50 +196,74 @@ export class AIService {
   }
 
   /**
-   * Prepare content for AI analysis (filtering and formatting)
+   * Prepare content for AI analysis with quality signals for intelligent filtering
+   * 
+   * This method doesn't just format content - it provides the AI with key signals
+   * to make intelligent filtering decisions during content analysis.
    */
   private prepareContentForAnalysis(content: any): string {
     const sections: string[] = [];
 
-    // Add tweets if available
+    // Add tweets with quality signals for AI filtering
     if (content.tweets?.length > 0) {
       sections.push('## TWITTER/X CONTENT');
+      sections.push(`*Note: ${content.tweets.length} tweets passed rule-based filtering. Focus on highest quality and most relevant items.*`);
+      sections.push('');
+      
       content.tweets.forEach((tweet: any, index: number) => {
         sections.push(`### Tweet ${index + 1}`);
         sections.push(`**Author:** @${tweet.author}`);
         sections.push(`**Date:** ${tweet.created_at}`);
+        
+        // Quality signals that guide AI filtering decisions
         sections.push(`**Engagement:** ${tweet.engagement_score} (Quality: ${tweet.quality_score.toFixed(2)})`);
+        sections.push(`**Priority:** ${tweet.engagement_score > 100 ? 'HIGH' : tweet.engagement_score > 50 ? 'MEDIUM' : 'LOW'}`);
+        
         sections.push(`**Content:** ${tweet.text}`);
         sections.push(`**URL:** ${tweet.url}`);
         sections.push('');
       });
     }
 
-    // Add Telegram messages if available
+    // Add Telegram messages with filtering guidance
     if (content.telegram_messages?.length > 0) {
       sections.push('## TELEGRAM CONTENT');
+      sections.push(`*Note: ${content.telegram_messages.length} messages from insider channels. Prioritize unique insights and breaking news.*`);
+      sections.push('');
+      
       content.telegram_messages.forEach((msg: any, index: number) => {
         sections.push(`### Message ${index + 1}`);
         sections.push(`**Channel:** ${msg.channel}`);
         sections.push(`**Author:** ${msg.author || 'Unknown'}`);
         sections.push(`**Date:** ${msg.message_date}`);
+        
+        // Quality signals for AI filtering
         sections.push(`**Views:** ${msg.views} (Quality: ${msg.quality_score.toFixed(2)})`);
+        sections.push(`**Signal Strength:** ${msg.views > 1000 ? 'STRONG' : msg.views > 500 ? 'MEDIUM' : 'WEAK'}`);
+        
         sections.push(`**Content:** ${msg.text}`);
         sections.push(`**URL:** ${msg.url}`);
         sections.push('');
       });
     }
 
-    // Add RSS articles if available
+    // Add RSS articles with relevance scoring
     if (content.rss_articles?.length > 0) {
       sections.push('## RSS ARTICLES');
+      sections.push(`*Note: ${content.rss_articles.length} articles from news sources. Focus on breaking news and unique analysis.*`);
+      sections.push('');
+      
       content.rss_articles.forEach((article: any, index: number) => {
         sections.push(`### Article ${index + 1}`);
         sections.push(`**Title:** ${article.title}`);
         sections.push(`**Source:** ${article.source}`);
         sections.push(`**Author:** ${article.author || 'Unknown'}`);
         sections.push(`**Date:** ${article.published_at}`);
-        sections.push(`**Quality:** ${article.quality_score.toFixed(2)}`);
+        
+        // Quality signals for AI filtering decisions
+        sections.push(`**Quality Score:** ${article.quality_score.toFixed(2)}`);
+        sections.push(`**Content Type:** ${article.quality_score > 0.8 ? 'PREMIUM ANALYSIS' : article.quality_score > 0.6 ? 'STANDARD NEWS' : 'BRIEF UPDATE'}`);
+        
         sections.push(`**Summary:** ${article.description}`);
         if (article.content) {
           sections.push(`**Content:** ${article.content.substring(0, 1000)}${article.content.length > 1000 ? '...' : ''}`);
@@ -207,18 +286,97 @@ export class AIService {
   }
 
   /**
-   * Build analysis prompt based on request type
+   * Call the appropriate AI model based on current configuration
+   */
+  private async callAIModel(prompt: string, outputFormat: string = 'json'): Promise<any> {
+    const { provider, modelName, options } = this.currentConfig;
+
+    const baseOptions = {
+      temperature: options.temperature || 0.7,
+      maxTokens: options.max_tokens || 2000,
+    };
+
+    try {
+      switch (provider) {
+        case 'openai':
+          return await generateText({
+            model: openai(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.reasoning_effort && { reasoningEffort: options.reasoning_effort })
+          });
+
+        case 'anthropic':
+          return await generateText({
+            model: anthropic(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.thinking && {
+              experimental_toolCallMode: 'json',
+              experimental_thinking: options.thinking.type === 'enabled',
+              ...(options.thinking.budgetTokens && {
+                experimental_thinkingBudgetTokens: options.thinking.budgetTokens
+              })
+            })
+          });
+
+        case 'google':
+          return await generateText({
+            model: google(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.safetySettings && { safetySettings: options.safetySettings })
+          });
+
+        case 'ollama':
+          return await generateText({
+            model: ollama(modelName),
+            prompt,
+            ...baseOptions
+          });
+
+        default:
+          throw new Error(`Unsupported AI provider: ${provider}`);
+      }
+    } catch (error: any) {
+      // Add provider-specific error handling
+      if (provider === 'ollama' && error?.message?.includes('ECONNREFUSED')) {
+        throw new Error('Ollama server not running. Start it with: ollama serve');
+      }
+      if (provider === 'google' && error?.message?.includes('API_KEY_INVALID')) {
+        throw new Error('Invalid Google API key. Check GOOGLE_GENERATIVE_AI_API_KEY environment variable');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Build analysis prompt that guides AI filtering and content selection
+   * 
+   * This prompt is crucial - it instructs the AI to act as an intelligent filter,
+   * not just a summarizer. The AI will select, prioritize, and curate content.
    */
   private buildAnalysisPrompt(request: AIAnalysisRequest, preparedContent: string): string {
-    const baseInstructions = `You are an expert content analyst specializing in technology, finance, and current events. Your task is to analyze the provided content and generate actionable insights.
+    const baseInstructions = `You are an expert content analyst and curator specializing in technology, finance, and current events. 
+
+Your job has TWO phases:
+1. INTELLIGENT FILTERING: Select only the most valuable, relevant, and newsworthy content
+2. ANALYSIS: Generate actionable insights from your curated selection
+
+CONTENT CURATION GUIDELINES:
+- IGNORE repetitive, off-topic, or low-value content
+- PRIORITIZE breaking news, unique insights, and emerging trends
+- COMBINE multiple sources discussing the same topic into single insights
+- FOCUS on content with high engagement scores and quality ratings
+- SELECT content that provides genuine value to readers
 
 ANALYSIS REQUIREMENTS:
-1. Focus on the most significant trends and patterns
-2. Prioritize high-quality, high-engagement content
-3. Identify emerging themes and topics
-4. Provide balanced, objective analysis
+1. Focus on the most significant trends and patterns from your curated selection
+2. Prioritize high-quality, high-engagement content you've selected
+3. Identify emerging themes from your filtered content
+4. Provide balanced, objective analysis based on your curation
 5. Include confidence levels for your assessments
-6. Cite specific examples to support your insights
+6. Cite specific examples from the content you chose to include
 
 OUTPUT FORMAT: Return a valid JSON object with the following structure:
 {
@@ -291,82 +449,7 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
     return `${baseInstructions}\n${specificInstructions}\n\nCONTENT TO ANALYZE:\n\n${preparedContent}`;
   }
 
-  /**
-   * Call the appropriate AI model
-   */
-  private async callAIModel(prompt: string, outputFormat: string = 'json'): Promise<any> {
-    const startTime = Date.now();
-    
-    try {
-      if (this.currentConfig.provider === 'openai') {
-        return await this.callOpenAI(prompt, outputFormat);
-      } else {
-        return await this.callAnthropic(prompt, outputFormat);
-      }
-    } catch (error: any) {
-      const duration = Date.now() - startTime;
-      logger.error(`AI model call failed after ${duration}ms`, {
-        provider: this.currentConfig.provider,
-        model: this.currentConfig.modelName,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
-  }
 
-  /**
-   * Call OpenAI API
-   */
-  private async callOpenAI(prompt: string, outputFormat: string): Promise<any> {
-    const model = openai(this.currentConfig.modelName);
-    
-    const result = await generateText({
-      model,
-      prompt,
-      temperature: this.currentConfig.options.temperature || 0.7,
-      maxTokens: this.currentConfig.options.max_tokens || 2000,
-      topP: this.currentConfig.options.top_p,
-    });
-
-    return {
-      text: result.text,
-      usage: result.usage,
-      reasoning_time_ms: result.usage?.completionTokens ? 
-        (result.usage.completionTokens * 50) : undefined // Rough estimate for reasoning time
-    };
-  }
-
-  /**
-   * Call Anthropic API
-   */
-  private async callAnthropic(prompt: string, outputFormat: string): Promise<any> {
-    const model = anthropic(this.currentConfig.modelName);
-    
-    const modelOptions: any = {
-      temperature: this.currentConfig.options.temperature || 0.7,
-      maxTokens: this.currentConfig.options.max_tokens || 2000,
-    };
-
-    // Add thinking configuration for Claude models
-    if (this.currentConfig.options.thinking?.type === 'enabled') {
-      modelOptions.thinking = {
-        budgetTokens: this.currentConfig.options.thinking.budgetTokens || 20000
-      };
-    }
-
-    const result = await generateText({
-      model,
-      prompt,
-      ...modelOptions
-    });
-
-    return {
-      text: result.text,
-      usage: result.usage,
-      reasoning_time_ms: result.usage?.promptTokens ? 
-        (result.usage.promptTokens * 2) : undefined // Rough estimate for reasoning time
-    };
-  }
 
   /**
    * Parse and validate AI response
@@ -464,6 +547,12 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
       throw new Error('ANTHROPIC_API_KEY environment variable is required for Anthropic');
     }
 
+    if (provider === 'google' && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      throw new Error('GOOGLE_GENERATIVE_AI_API_KEY environment variable is required for Google Gemini');
+    }
+
+    // Note: Ollama doesn't require API key validation as it's a local service
+
     logger.debug('AI configuration validated', { provider, modelName });
   }
 
@@ -504,6 +593,7 @@ SENTIMENT-SPECIFIC INSTRUCTIONS:
 
       const response = await this.analyzeContent(testRequest);
       logger.info(`AI connection test successful: ${this.currentConfig.provider}:${this.currentConfig.modelName}`);
+      logger.info(response);
       return true;
 
     } catch (error) {

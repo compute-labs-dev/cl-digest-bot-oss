@@ -1,1343 +1,1481 @@
-# Chapter 8: Advanced AI Techniques - Mastering Intelligent Analysis
+# Chapter 7: AI Integration - Giving Your System a Brain
 
-*"The art of being wise is knowing what to overlook." - William James*
+*"The question of whether a machine can think is no more interesting than the question of whether a submarine can swim." - Edsger W. Dijkstra*
 
 ---
 
-Now that we have our AI foundation, it's time to level up! This chapter reveals the advanced techniques that separate amateur AI integrations from professional-grade systems. We'll explore sophisticated prompt engineering, multi-step reasoning chains, cost optimization strategies, and specialized analysis workflows.
+This is the moment we've been building toward! We've collected tweets, scraped Telegram channels, and parsed RSS feeds. Now it's time to transform that raw data soup into crystal-clear insights using the most powerful AI models available.
 
-By the end of this chapter, you'll have an AI system that doesn't just analyze content—it **understands context**, **reasons through complex scenarios**, and **adapts its analysis style** based on content type and business needs.
+In this chapter, we'll integrate **4 different AI providers** - OpenAI, Anthropic, Google, and Ollama - giving you complete flexibility to choose based on your budget, privacy needs, and quality requirements. You'll learn advanced prompt engineering, intelligent content filtering, and how to build AI systems that scale.
 
-## 🎯 What We're Building
+## 🧠 Why 4 Different AI Providers?
 
-Advanced AI capabilities including:
-- **Dynamic prompt templates** that adapt to content types
-- **Multi-step reasoning chains** for complex analysis
-- **Content-aware processing** with specialized workflows
-- **Cost optimization algorithms** that maximize insight per dollar
-- **Quality assurance systems** that validate AI outputs
-- **Contextual memory** that improves analysis over time
+**Maximum flexibility for every use case:**
 
-## 🧠 Advanced Prompt Engineering Patterns
+**OpenAI (GPT-4/o1):**
+- Excellent reasoning and creative tasks
+- Great structured output generation
+- Reliable and well-documented
+- Premium pricing for premium quality
 
-Let's start with sophisticated prompt templates that dramatically improve output quality:
+**Anthropic (Claude):**
+- Superior long-form analysis
+- Excellent instruction following
+- Advanced reasoning capabilities
+- Great for complex content analysis
+
+**Google (Gemini):**
+- Cost-effective cloud option
+- Good performance at lower cost
+- Integrated with Google ecosystem
+- Great balance of price/performance
+
+**Ollama (Local):**
+- Completely free after setup
+- Full privacy control (runs locally)
+- No API limits or costs
+- Perfect for development and testing
+
+**Our Strategy:** Start free with Ollama, scale cost-effectively with Gemini, upgrade to OpenAI/Claude for premium quality when needed.
+
+## 💰 AI Model Costs & Provider Comparison
+
+We'll support **4 AI providers** to give you flexibility based on your budget and performance needs:
+
+### Cloud Providers (API-based, pay-per-use)
+
+**OpenAI (GPT-4/o1):**
+- Input: $2.50 per 1M tokens | Output: $10.00 per 1M tokens
+- **Estimate**: ~$0.10-0.50 per digest
+- **Best for**: Highest quality reasoning, complex analysis tasks
+
+**Anthropic (Claude):**
+- Input: $3.00 per 1M tokens | Output: $15.00 per 1M tokens  
+- **Estimate**: ~$0.15-0.75 per digest
+- **Best for**: Long-form content analysis, excellent instruction following
+
+**Google (Gemini Pro):**
+- Input: $1.25 per 1M tokens | Output: $5.00 per 1M tokens
+- **Estimate**: ~$0.05-0.25 per digest
+- **Best for**: Cost-effective alternative with good performance
+
+### Local Provider (Self-hosted, free after setup)
+
+**Ollama (Llama 3.1, Qwen, etc.):**
+- **Cost**: Free (after initial setup)
+- **Hardware**: Requires 8GB+ RAM for good performance
+- **Best for**: Development, testing, privacy-sensitive use cases
+
+### Choosing Your Provider
+
+| Provider | Cost | Quality | Speed | Privacy | Best Use Case |
+|----------|------|---------|-------|---------|---------------|
+| **OpenAI** | $$$$$ | Excellent | Fast | Cloud | Production, highest quality |
+| **Anthropic** | $$$$$ | Excellent | Fast | Cloud | Analysis-heavy tasks |
+| **Google Gemini** | $$$ | Very Good | Fast | Cloud | Cost-conscious production |
+| **Ollama** | Free | Good | Medium | Local | Development, privacy |
+
+**💡 Cost Management Strategy:**
+- Start with **Ollama** for development and testing (free)
+- Use **Gemini** for cost-effective production deployment
+- Switch to **OpenAI/Anthropic** for highest quality when needed
+- Smart prompt engineering to minimize tokens across all providers
+- Content filtering before AI processing
+
+## 🔍 The Two-Stage Content Filtering System
+
+Here's something crucial that most AI tutorials miss: **your AI model isn't just generating content - it's also acting as an intelligent filter and curator**. Understanding this is key to building a system that scales with content volume.
+
+### Stage 1: Rule-Based Pre-Filtering (The Bouncer 👊)
+
+This is what we built in previous chapters:
+- **Engagement thresholds**: Remove low-engagement tweets
+- **Spam detection**: Filter out noise patterns (RT spam, link-only posts)
+- **Length requirements**: Ensure minimum content quality
+- **Rate limiting**: Handle API constraints
 
 ```typescript
-// lib/ai/prompt-templates.ts
-
-export interface PromptTemplate {
-  name: string;
-  description: string;
-  systemPrompt: string;
-  userPromptTemplate: string;
-  outputSchema: any;
-  costTier: 'low' | 'medium' | 'high';
-  recommendedModels: string[];
-}
-
-export class PromptTemplateManager {
-  private templates: Map<string, PromptTemplate> = new Map();
-
-  constructor() {
-    this.initializeTemplates();
-  }
-
-  /**
-   * Initialize all prompt templates
-   */
-  private initializeTemplates(): void {
-    // Market Intelligence Template
-    this.registerTemplate({
-      name: 'market_intelligence',
-      description: 'Deep market analysis with trend prediction',
-      systemPrompt: `You are a senior market intelligence analyst with 15+ years of experience in technology and finance sectors. Your analysis directly influences multi-million dollar investment decisions.
-
-CORE COMPETENCIES:
-- Pattern recognition across market cycles
-- Signal vs noise differentiation in news flow
-- Risk assessment and opportunity identification
-- Cross-sector trend correlation analysis
-- Regulatory and competitive landscape awareness
-
-ANALYSIS FRAMEWORK:
-1. MARKET CONTEXT: Current macro environment and sector positioning
-2. SIGNAL DETECTION: Identify genuine market-moving information
-3. TREND ANALYSIS: Short-term momentum vs long-term structural shifts
-4. RISK ASSESSMENT: Downside scenarios and mitigation strategies
-5. OPPORTUNITY MAPPING: Actionable insights for decision-makers
-6. CONFIDENCE SCORING: Probabilistic assessment of predictions
-
-OUTPUT REQUIREMENTS:
-- Executive-level clarity and conciseness
-- Quantified confidence levels (0.0-1.0)
-- Specific, actionable recommendations
-- Risk-adjusted opportunity sizing
-- Timeline-specific predictions (1W, 1M, 3M, 1Y)`,
-
-      userPromptTemplate: `MARKET INTELLIGENCE REQUEST
-
-TIME PERIOD: {timeframe}
-CONTENT SOURCES: {source_count} sources ({source_breakdown})
-FOCUS SECTORS: {sectors}
-
-CONTENT FOR ANALYSIS:
-{formatted_content}
-
-SPECIFIC ANALYSIS REQUIREMENTS:
-{custom_instructions}
-
-Please provide a comprehensive market intelligence report following our analysis framework.`,
-
-      outputSchema: {
-        market_overview: {
-          current_sentiment: 'string',
-          key_drivers: 'array',
-          market_phase: 'string',
-          volatility_assessment: 'number'
-        },
-        trend_analysis: {
-          emerging_trends: 'array',
-          declining_trends: 'array',
-          trend_convergence: 'array'
-        },
-        opportunity_map: {
-          short_term: 'array',
-          medium_term: 'array',
-          long_term: 'array'
-        },
-        risk_matrix: {
-          high_probability_risks: 'array',
-          black_swan_scenarios: 'array',
-          mitigation_strategies: 'array'
-        },
-        predictions: {
-          one_week: 'object',
-          one_month: 'object',
-          three_months: 'object',
-          one_year: 'object'
-        }
-      },
-      costTier: 'high',
-      recommendedModels: ['claude-3-5-sonnet-20241022', 'gpt-4o']
-    });
-
-    // Technical Analysis Template
-    this.registerTemplate({
-      name: 'technical_analysis',
-      description: 'Deep-dive technical content analysis',
-      systemPrompt: `You are a principal technical analyst at a leading technology research firm. You specialize in evaluating emerging technologies, architectural decisions, and technical market trends.
-
-EXPERTISE AREAS:
-- Software architecture and system design patterns
-- Emerging technology assessment and adoption curves
-- Technical risk evaluation and mitigation
-- Developer ecosystem analysis
-- Infrastructure and scalability considerations
-- Security and compliance implications
-
-ANALYSIS METHODOLOGY:
-1. TECHNICAL MERIT: Objective assessment of technological advancement
-2. ADOPTION FEASIBILITY: Real-world implementation challenges and opportunities
-3. ECOSYSTEM IMPACT: Effects on existing technology stacks and workflows
-4. COMPETITIVE LANDSCAPE: Technical differentiation and market positioning
-5. RISK-REWARD PROFILE: Technical debt vs innovation benefits
-6. TIMELINE ASSESSMENT: Development and deployment practicalities`,
-
-      userPromptTemplate: `TECHNICAL ANALYSIS REQUEST
-
-ANALYSIS FOCUS: {analysis_focus}
-TECHNICAL DOMAINS: {technical_domains}
-TIMEFRAME: {timeframe}
-
-CONTENT FOR ANALYSIS:
-{formatted_content}
-
-SPECIFIC TECHNICAL QUESTIONS:
-{technical_questions}
-
-Please provide a comprehensive technical analysis following our methodology.`,
-
-      outputSchema: {
-        technical_assessment: {
-          innovation_score: 'number',
-          complexity_rating: 'number',
-          maturity_level: 'string',
-          technical_feasibility: 'number'
-        },
-        adoption_analysis: {
-          adoption_barriers: 'array',
-          enabling_factors: 'array',
-          timeline_estimate: 'string',
-          adoption_curve_position: 'string'
-        },
-        competitive_implications: {
-          market_differentiators: 'array',
-          threat_assessment: 'array',
-          opportunity_windows: 'array'
-        }
-      },
-      costTier: 'medium',
-      recommendedModels: ['claude-3-5-sonnet-20241022', 'gpt-4o']
-    });
-
-    // News Synthesis Template
-    this.registerTemplate({
-      name: 'news_synthesis',
-      description: 'Fast, cost-effective news summarization',
-      systemPrompt: `You are an experienced news editor who specializes in creating concise, accurate summaries for executive briefings. Your summaries are read by C-level executives who need the essential information quickly.
-
-EDITORIAL PRINCIPLES:
-- Lead with the most newsworthy and impactful information
-- Maintain objectivity and factual accuracy
-- Highlight business and market implications
-- Connect related stories across sources
-- Identify emerging themes and patterns
-- Flag breaking news and significant developments
-
-SUMMARY STRUCTURE:
-1. HEADLINE SYNTHESIS: Capture the core story in one compelling headline
-2. KEY DEVELOPMENTS: 3-5 most important factual updates
-3. BUSINESS IMPACT: Immediate and potential future implications
-4. STAKEHOLDER EFFECTS: Who wins, who loses, who should pay attention
-5. FOLLOW-UP ITEMS: What to watch for next`,
-
-      userPromptTemplate: `NEWS SYNTHESIS REQUEST
-
-TIME PERIOD: {timeframe}
-CONTENT VOLUME: {content_count} items
-PRIORITY FOCUS: {priority_topics}
-
-CONTENT FOR SYNTHESIS:
-{formatted_content}
-
-Please provide a concise executive news synthesis.`,
-
-      outputSchema: {
-        headline: 'string',
-        key_developments: 'array',
-        business_impact: {
-          immediate: 'array',
-          potential: 'array'
-        },
-        stakeholder_effects: 'array',
-        follow_up_items: 'array',
-        urgency_level: 'string'
-      },
-      costTier: 'low',
-      recommendedModels: ['gpt-4o-mini', 'claude-3-haiku-20240307']
-    });
-  }
-
-  /**
-   * Register a new prompt template
-   */
-  registerTemplate(template: PromptTemplate): void {
-    this.templates.set(template.name, template);
-  }
-
-  /**
-   * Get template by name
-   */
-  getTemplate(name: string): PromptTemplate | null {
-    return this.templates.get(name) || null;
-  }
-
-  /**
-   * Get templates by cost tier
-   */
-  getTemplatesByCostTier(tier: 'low' | 'medium' | 'high'): PromptTemplate[] {
-    return Array.from(this.templates.values()).filter(t => t.costTier === tier);
-  }
-
-  /**
-   * Get recommended template based on content and budget
-   */
-  getRecommendedTemplate(contentType: string, budget: 'low' | 'medium' | 'high'): PromptTemplate | null {
-    const templates = Array.from(this.templates.values()).filter(t => {
-      return t.costTier === budget || (budget === 'high' && t.costTier !== 'low');
-    });
-
-    // Simple matching logic - can be enhanced with ML
-    if (contentType.includes('market') || contentType.includes('financial')) {
-      return templates.find(t => t.name === 'market_intelligence') || templates[0];
-    }
-    if (contentType.includes('technical') || contentType.includes('technology')) {
-      return templates.find(t => t.name === 'technical_analysis') || templates[0];
-    }
-    
-    return templates.find(t => t.name === 'news_synthesis') || templates[0];
-  }
-
-  /**
-   * Build prompt from template
-   */
-  buildPrompt(templateName: string, variables: Record<string, any>): { systemPrompt: string; userPrompt: string } | null {
-    const template = this.getTemplate(templateName);
-    if (!template) return null;
-
-    let userPrompt = template.userPromptTemplate;
-    
-    // Replace variables in template
-    Object.entries(variables).forEach(([key, value]) => {
-      const placeholder = `{${key}}`;
-      userPrompt = userPrompt.replace(new RegExp(placeholder, 'g'), String(value));
-    });
-
-    return {
-      systemPrompt: template.systemPrompt,
-      userPrompt
-    };
-  }
-}
+// Example from our TweetProcessor
+const isQualityTweet = (tweet) => {
+  // Rule-based filtering
+  if (tweet.text.length < 20) return false;  // Too short
+  if (tweet.engagement_score < 20) return false;  // Low engagement
+  if (NOISE_PATTERNS.some(pattern => pattern.test(tweet.text))) return false;  // Spam
+  return true;
+};
 ```
 
-## 🔗 Multi-Step Reasoning Chains
+**This stage removes obvious junk but passes through everything else.**
 
-For complex analysis, we'll implement reasoning chains that break down problems:
+### Stage 2: AI-Powered Intelligent Filtering (The Curator)
+
+This is where the magic happens. The AI model doesn't just summarize everything you feed it - **it intelligently selects, prioritizes, and curates the most relevant content**.
+
+Here's what the AI is actually doing during content analysis:
 
 ```typescript
-// lib/ai/reasoning-chains.ts
+// What happens inside generateDigestContent()
+const analysisPrompt = `
+You are analyzing ${totalItems} pieces of content. Your job is to:
 
-import { AIService } from './ai-service';
-import { PromptTemplateManager } from './prompt-templates';
+1. INTELLIGENTLY SELECT the most newsworthy and relevant items
+2. IGNORE content that is repetitive, off-topic, or low-value
+3. PRIORITIZE content that shows emerging trends or important developments
+4. SYNTHESIZE insights from multiple sources when they discuss the same topic
 
-export interface ReasoningStep {
-  name: string;
-  description: string;
-  inputSchema: any;
-  outputSchema: any;
-  estimatedTokens: number;
-  dependencies?: string[];
-}
-
-export interface ReasoningChain {
-  name: string;
-  description: string;
-  steps: ReasoningStep[];
-  totalEstimatedCost: number;
-}
-
-export class ReasoningChainManager {
-  private aiService: AIService;
-  private promptManager: PromptTemplateManager;
-  private chains: Map<string, ReasoningChain> = new Map();
-
-  constructor(aiService: AIService) {
-    this.aiService = aiService;
-    this.promptManager = new PromptTemplateManager();
-    this.initializeChains();
-  }
-
-  /**
-   * Initialize reasoning chains
-   */
-  private initializeChains(): void {
-    // Market Intelligence Chain
-    this.registerChain({
-      name: 'comprehensive_market_analysis',
-      description: 'Multi-step market intelligence with cross-validation',
-      steps: [
-        {
-          name: 'initial_assessment',
-          description: 'Quick content categorization and priority scoring',
-          inputSchema: { content: 'array', timeframe: 'string' },
-          outputSchema: { categories: 'array', priorities: 'array', signals: 'array' },
-          estimatedTokens: 500
-        },
-        {
-          name: 'trend_extraction',
-          description: 'Identify and analyze emerging trends',
-          inputSchema: { prioritized_content: 'array', context: 'object' },
-          outputSchema: { trends: 'array', confidence_scores: 'array' },
-          estimatedTokens: 1000,
-          dependencies: ['initial_assessment']
-        },
-        {
-          name: 'risk_modeling',
-          description: 'Assess risks and opportunities',
-          inputSchema: { trends: 'array', market_context: 'object' },
-          outputSchema: { risks: 'array', opportunities: 'array', scenarios: 'array' },
-          estimatedTokens: 800,
-          dependencies: ['trend_extraction']
-        },
-        {
-          name: 'synthesis',
-          description: 'Synthesize insights into actionable intelligence',
-          inputSchema: { assessments: 'array', trends: 'array', risks: 'array' },
-          outputSchema: { final_report: 'object', recommendations: 'array' },
-          estimatedTokens: 1200,
-          dependencies: ['initial_assessment', 'trend_extraction', 'risk_modeling']
-        }
-      ],
-      totalEstimatedCost: 0.15 // USD estimate
-    });
-
-    // Content Quality Enhancement Chain
-    this.registerChain({
-      name: 'content_quality_enhancement',
-      description: 'Multi-pass content filtering and enhancement',
-      steps: [
-        {
-          name: 'quality_scoring',
-          description: 'Score content quality across multiple dimensions',
-          inputSchema: { content: 'array' },
-          outputSchema: { scores: 'array', filtered_content: 'array' },
-          estimatedTokens: 300
-        },
-        {
-          name: 'duplicate_detection',
-          description: 'Identify and handle duplicate/similar content',
-          inputSchema: { content: 'array', similarity_threshold: 'number' },
-          outputSchema: { unique_content: 'array', duplicate_clusters: 'array' },
-          estimatedTokens: 400,
-          dependencies: ['quality_scoring']
-        },
-        {
-          name: 'content_enhancement',
-          description: 'Enhance and standardize content format',
-          inputSchema: { filtered_content: 'array' },
-          outputSchema: { enhanced_content: 'array', metadata: 'object' },
-          estimatedTokens: 600,
-          dependencies: ['duplicate_detection']
-        }
-      ],
-      totalEstimatedCost: 0.08
-    });
-  }
-
-  /**
-   * Register a reasoning chain
-   */
-  registerChain(chain: ReasoningChain): void {
-    this.chains.set(chain.name, chain);
-  }
-
-  /**
-   * Execute a reasoning chain
-   */
-  async executeChain(chainName: string, initialInput: any): Promise<any> {
-    const chain = this.chains.get(chainName);
-    if (!chain) {
-      throw new Error(`Reasoning chain '${chainName}' not found`);
-    }
-
-    const stepResults: Map<string, any> = new Map();
-    const executionLog: any[] = [];
-
-    console.log(`🔗 Executing reasoning chain: ${chain.name}`);
-    console.log(`   Steps: ${chain.steps.length}, Estimated cost: $${chain.totalEstimatedCost}`);
-
-    for (const step of chain.steps) {
-      console.log(`   Executing step: ${step.name}`);
-      
-      // Check dependencies
-      if (step.dependencies) {
-        for (const dep of step.dependencies) {
-          if (!stepResults.has(dep)) {
-            throw new Error(`Step '${step.name}' depends on '${dep}' which hasn't been executed`);
-          }
-        }
-      }
-
-      // Prepare input for this step
-      const stepInput = this.prepareStepInput(step, initialInput, stepResults);
-      
-      // Execute step
-      const startTime = Date.now();
-      const stepResult = await this.executeStep(step, stepInput);
-      const executionTime = Date.now() - startTime;
-
-      // Store result
-      stepResults.set(step.name, stepResult);
-      
-      executionLog.push({
-        step: step.name,
-        execution_time_ms: executionTime,
-        tokens_used: stepResult.token_usage?.total_tokens || 0,
-        success: true
-      });
-
-      console.log(`   ✅ Step completed: ${step.name} (${executionTime}ms)`);
-    }
-
-    // Return final result
-    const finalStep = chain.steps[chain.steps.length - 1];
-    const finalResult = stepResults.get(finalStep.name);
-
-    return {
-      result: finalResult,
-      execution_log: executionLog,
-      total_steps: chain.steps.length,
-      total_time_ms: executionLog.reduce((sum, log) => sum + log.execution_time_ms, 0),
-      total_tokens: executionLog.reduce((sum, log) => sum + log.tokens_used, 0)
-    };
-  }
-
-  /**
-   * Prepare input for a specific step
-   */
-  private prepareStepInput(step: ReasoningStep, initialInput: any, previousResults: Map<string, any>): any {
-    const stepInput: any = { ...initialInput };
-
-    // Add results from dependency steps
-    if (step.dependencies) {
-      for (const dep of step.dependencies) {
-        const depResult = previousResults.get(dep);
-        if (depResult) {
-          stepInput[`${dep}_result`] = depResult.analysis || depResult;
-        }
-      }
-    }
-
-    return stepInput;
-  }
-
-  /**
-   * Execute a single reasoning step
-   */
-  private async executeStep(step: ReasoningStep, input: any): Promise<any> {
-    // Build specialized prompt for this step
-    const prompt = this.buildStepPrompt(step, input);
-    
-    // Execute with AI service
-    const response = await this.aiService.analyzeContent({
-      content: input,
-      analysisType: 'summary', // Could be more specific
-      instructions: prompt
-    });
-
-    return response;
-  }
-
-  /**
-   * Build prompt for a reasoning step
-   */
-  private buildStepPrompt(step: ReasoningStep, input: any): string {
-    return `REASONING STEP: ${step.name}
-
-OBJECTIVE: ${step.description}
-
-INPUT DATA: ${JSON.stringify(input, null, 2)}
-
-REQUIREMENTS:
-- Focus specifically on ${step.name}
-- Output must match the expected schema
-- Be concise but thorough in your analysis
-- Build upon any previous step results provided
-
-Please provide your analysis for this step.`;
-  }
-
-  /**
-   * Get available chains
-   */
-  getAvailableChains(): string[] {
-    return Array.from(this.chains.keys());
-  }
-
-  /**
-   * Get chain details
-   */
-  getChainDetails(chainName: string): ReasoningChain | null {
-    return this.chains.get(chainName) || null;
-  }
-}
+Focus on HIGH-QUALITY content that provides genuine value to readers.
+Do not include every item - be selective and focus on what truly matters.
+`;
 ```
 
-## 💰 Advanced Cost Optimization
+**The AI is making thousands of micro-decisions:**
+- "This tweet about lunch is irrelevant - ignore it"
+- "These 5 tweets are all about the same AI release - combine them into one insight"
+- "This RSS article contradicts what Twitter users are saying - worth investigating"
+- "This Telegram message has insider information - prioritize it"
 
-Let's implement smart cost management that maximizes insight per dollar:
+### Why This Two-Stage System Works
+
+**Token Economics Drive Intelligence:**
+- With 100,000+ words of input but only 4,000 tokens for output, the AI *must* be selective
+- This constraint forces the AI to act as an intelligent filter, not just a summarizer
+- The AI naturally prioritizes higher-quality, more relevant content
+
+**Example of AI Filtering in Action:**
 
 ```typescript
-// lib/ai/cost-optimizer.ts
+// Input: 200 tweets, 50 RSS articles, 100 Telegram messages
+// Rule-based filter: Removes 150 low-quality items → 200 items remain
+// AI intelligent filter: Selects 30 most relevant items for final digest
 
-import { AIModelConfig, TokenUsage } from '../../types/ai';
+// The AI might decide:
+// ✅ Include: Breaking AI research with high engagement
+// ❌ Skip: Random crypto speculation with low engagement  
+// ✅ Include: Insider info from Telegram that aligns with Twitter trends
+// ❌ Skip: Repetitive content already covered in better sources
+// ✅ Combine: Multiple tweets about same topic into single insight
+```
 
-export interface CostOptimizationConfig {
-  maxDailyCost: number;
-  maxPerAnalysisCost: number;
-  priorityLevels: {
-    critical: number;    // Spend up to this much on critical analysis
-    important: number;   // Normal analysis budget
-    routine: number;     // Routine analysis budget
-  };
-  modelPreferences: {
-    low_cost: string[];    // Models for cost-conscious analysis
-    balanced: string[];    // Balanced cost/performance
-    premium: string[];     // Best performance regardless of cost
+**Quality Scoring Integration:**
+
+The AI uses quality scores from our pre-filtering to make better decisions:
+
+```typescript
+// In prepareContentForAnalysis()
+sections.push(`**Engagement:** ${tweet.engagement_score} (Quality: ${tweet.quality_score.toFixed(2)})`);
+```
+
+The AI sees these scores and weights content accordingly:
+- High quality score = more likely to be included in final digest
+- Multiple high-quality sources on same topic = combined into trend analysis
+- Low quality score = might be mentioned briefly or ignored entirely
+
+### The Real Power: Context-Aware Filtering
+
+Unlike rule-based filters, the AI understands **context and relevance**:
+
+```typescript
+// Rule-based filter sees:
+// Tweet A: "Just had coffee" (engagement: 50) → PASS
+// Tweet B: "OpenAI just released GPT-5" (engagement: 30) → FAIL
+
+// AI filter sees:
+// Tweet A: Low relevance for tech digest → IGNORE
+// Tweet B: Highly relevant despite lower engagement → PRIORITIZE
+```
+
+This is why AI costs are worth it - you're not just getting summarization, you're getting **intelligent content curation**.
+
+## 🎯 AI Data Types and Interfaces
+
+Let's define our AI integration types:
+
+```typescript
+// types/ai.ts
+
+export interface AIModelConfig {
+  provider: 'openai' | 'anthropic' | 'google' | 'ollama';
+  modelName: string;
+  options: {
+    temperature?: number;
+    max_tokens?: number;
+    top_p?: number;
+    // OpenAI-specific options
+    reasoning_effort?: 'low' | 'medium' | 'high'; // OpenAI o1 models
+    // Anthropic-specific options
+    thinking?: {  // Anthropic Claude thinking
+      type: 'enabled' | 'disabled';
+      budgetTokens?: number;
+    };
+    // Google Gemini-specific options
+    safetySettings?: Array<{
+      category: string;
+      threshold: string;
+    }>;
+    // Ollama-specific options
+    baseURL?: string; // Custom Ollama server URL
+    keepAlive?: string; // Keep model loaded in memory
   };
 }
 
-export interface OptimizationRecommendation {
-  recommendedModel: AIModelConfig;
-  estimatedCost: number;
-  costSavings: number;
-  qualityImpact: 'none' | 'minimal' | 'moderate' | 'significant';
-  explanation: string;
+export interface TokenUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  reasoning_tokens?: number; // For OpenAI o1 models
+  cache_read_tokens?: number; // For Anthropic caching
 }
 
-export class CostOptimizer {
-  private config: CostOptimizationConfig;
-  private dailySpend: number = 0;
-  private costHistory: { date: string; amount: number; tokens: number }[] = [];
+export interface AIAnalysisRequest {
+  content: ContentForAnalysis;
+  analysisType: 'digest' | 'summary' | 'categorization' | 'sentiment';
+  instructions?: string;
+  outputFormat?: 'json' | 'markdown' | 'text';
+}
 
-  // Model pricing (per 1K tokens)
-  private readonly MODEL_COSTS = {
-    'gpt-4o': { input: 0.0025, output: 0.010 },
-    'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
-    'claude-3-5-sonnet-20241022': { input: 0.003, output: 0.015 },
-    'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 }
+export interface ContentForAnalysis {
+  tweets?: AnalysisTweet[];
+  telegram_messages?: AnalysisTelegramMessage[];
+  rss_articles?: AnalysisRSSArticle[];
+  timeframe: {
+    from: string;
+    to: string;
   };
-
-  constructor(config: CostOptimizationConfig) {
-    this.config = config;
-    this.loadCostHistory();
-  }
-
-  /**
-   * Get optimization recommendation for analysis
-   */
-  getOptimizationRecommendation(
-    contentSize: number,
-    priority: 'critical' | 'important' | 'routine',
-    currentModel: string
-  ): OptimizationRecommendation {
-    const estimatedTokens = this.estimateTokenUsage(contentSize);
-    const availableBudget = this.getAvailableBudget(priority);
-    
-    // Calculate costs for different models
-    const costComparisons = Object.entries(this.MODEL_COSTS).map(([model, pricing]) => {
-      const inputCost = (estimatedTokens.input / 1000) * pricing.input;
-      const outputCost = (estimatedTokens.output / 1000) * pricing.output;
-      const totalCost = inputCost + outputCost;
-      
-      return {
-        model,
-        cost: totalCost,
-        withinBudget: totalCost <= availableBudget,
-        performance: this.getModelPerformanceScore(model)
-      };
-    });
-
-    // Sort by cost-effectiveness (performance per dollar)
-    costComparisons.sort((a, b) => {
-      const aRatio = a.performance / a.cost;
-      const bRatio = b.performance / b.cost;
-      return bRatio - aRatio;
-    });
-
-    // Find best option within budget
-    const bestOption = costComparisons.find(option => option.withinBudget) || costComparisons[costComparisons.length - 1];
-    const currentCost = costComparisons.find(option => option.model === currentModel)?.cost || 0;
-    
-    return {
-      recommendedModel: {
-        provider: bestOption.model.includes('gpt') ? 'openai' : 'anthropic',
-        modelName: bestOption.model,
-        options: this.getOptimalModelOptions(bestOption.model, priority)
-      },
-      estimatedCost: bestOption.cost,
-      costSavings: Math.max(0, currentCost - bestOption.cost),
-      qualityImpact: this.assessQualityImpact(currentModel, bestOption.model),
-      explanation: this.generateOptimizationExplanation(bestOption, availableBudget, priority)
+  metadata: {
+    total_sources: number;
+    source_breakdown: {
+      twitter: number;
+      telegram: number;
+      rss: number;
     };
-  }
-
-  /**
-   * Estimate token usage based on content size
-   */
-  private estimateTokenUsage(contentSize: number): { input: number; output: number } {
-    // Rough estimates based on content characteristics
-    const baseInputTokens = Math.ceil(contentSize / 4); // ~4 chars per token
-    const systemPromptTokens = 800; // Average system prompt size
-    const inputTokens = baseInputTokens + systemPromptTokens;
-    
-    // Output typically 15-25% of input for analysis tasks
-    const outputTokens = Math.ceil(inputTokens * 0.2);
-    
-    return { input: inputTokens, output: outputTokens };
-  }
-
-  /**
-   * Get available budget for priority level
-   */
-  private getAvailableBudget(priority: 'critical' | 'important' | 'routine'): number {
-    const remainingDaily = this.config.maxDailyCost - this.dailySpend;
-    const priorityBudget = this.config.priorityLevels[priority];
-    const maxPerAnalysis = this.config.maxPerAnalysisCost;
-    
-    return Math.min(remainingDaily, priorityBudget, maxPerAnalysis);
-  }
-
-  /**
-   * Get model performance score (0-1 scale)
-   */
-  private getModelPerformanceScore(model: string): number {
-    const scores: Record<string, number> = {
-      'claude-3-5-sonnet-20241022': 0.95,
-      'gpt-4o': 0.90,
-      'gpt-4o-mini': 0.75,
-      'claude-3-haiku-20240307': 0.70
-    };
-    return scores[model] || 0.5;
-  }
-
-  /**
-   * Get optimal model options for priority level
-   */
-  private getOptimalModelOptions(model: string, priority: 'critical' | 'important' | 'routine'): any {
-    const baseOptions = {
-      temperature: 0.7,
-      max_tokens: 2000
-    };
-
-    switch (priority) {
-      case 'critical':
-        return {
-          ...baseOptions,
-          temperature: 0.3, // More conservative for critical analysis
-          max_tokens: 3000,
-          thinking: model.includes('claude') ? { type: 'enabled', budgetTokens: 30000 } : undefined
-        };
-      
-      case 'important':
-        return {
-          ...baseOptions,
-          max_tokens: 2500,
-          thinking: model.includes('claude') ? { type: 'enabled', budgetTokens: 20000 } : undefined
-        };
-      
-      case 'routine':
-        return {
-          ...baseOptions,
-          max_tokens: 1500,
-          temperature: 0.8, // Slightly more creative for routine tasks
-          thinking: model.includes('claude') ? { type: 'enabled', budgetTokens: 10000 } : undefined
-        };
-    }
-  }
-
-  /**
-   * Assess quality impact of model change
-   */
-  private assessQualityImpact(currentModel: string, recommendedModel: string): 'none' | 'minimal' | 'moderate' | 'significant' {
-    const currentScore = this.getModelPerformanceScore(currentModel);
-    const recommendedScore = this.getModelPerformanceScore(recommendedModel);
-    const difference = currentScore - recommendedScore;
-
-    if (difference <= 0) return 'none';
-    if (difference <= 0.05) return 'minimal';
-    if (difference <= 0.15) return 'moderate';
-    return 'significant';
-  }
-
-  /**
-   * Generate optimization explanation
-   */
-  private generateOptimizationExplanation(
-    option: any, 
-    budget: number, 
-    priority: string
-  ): string {
-    const explanations = [];
-    
-    if (option.cost <= budget * 0.5) {
-      explanations.push('Significant cost savings possible while maintaining quality');
-    } else if (option.cost <= budget * 0.8) {
-      explanations.push('Moderate cost optimization with minimal quality impact');
-    } else {
-      explanations.push('Operating near budget limits - consider reducing scope');
-    }
-
-    if (priority === 'critical') {
-      explanations.push('Using premium settings for critical analysis');
-    } else if (priority === 'routine') {
-      explanations.push('Cost-optimized settings for routine analysis');
-    }
-
-    return explanations.join('. ') + '.';
-  }
-
-  /**
-   * Record actual cost after analysis
-   */
-  recordActualCost(tokenUsage: TokenUsage, model: string): void {
-    const pricing = this.MODEL_COSTS[model as keyof typeof this.MODEL_COSTS];
-    if (!pricing) return;
-
-    const inputCost = (tokenUsage.prompt_tokens / 1000) * pricing.input;
-    const outputCost = (tokenUsage.completion_tokens / 1000) * pricing.output;
-    const totalCost = inputCost + outputCost;
-
-    this.dailySpend += totalCost;
-    this.costHistory.push({
-      date: new Date().toISOString().split('T')[0],
-      amount: totalCost,
-      tokens: tokenUsage.total_tokens
-    });
-
-    // Keep only last 30 days
-    this.costHistory = this.costHistory.slice(-30);
-    this.saveCostHistory();
-  }
-
-  /**
-   * Get cost analytics
-   */
-  getCostAnalytics(): any {
-    const last7Days = this.costHistory.slice(-7);
-    const last30Days = this.costHistory;
-
-    return {
-      daily_spend: this.dailySpend,
-      remaining_budget: this.config.maxDailyCost - this.dailySpend,
-      last_7_days: {
-        total_cost: last7Days.reduce((sum, entry) => sum + entry.amount, 0),
-        total_tokens: last7Days.reduce((sum, entry) => sum + entry.tokens, 0),
-        average_daily: last7Days.reduce((sum, entry) => sum + entry.amount, 0) / 7
-      },
-      last_30_days: {
-        total_cost: last30Days.reduce((sum, entry) => sum + entry.amount, 0),
-        total_tokens: last30Days.reduce((sum, entry) => sum + entry.tokens, 0),
-        average_daily: last30Days.reduce((sum, entry) => sum + entry.amount, 0) / 30
-      },
-      budget_utilization: (this.dailySpend / this.config.maxDailyCost) * 100
-    };
-  }
-
-  /**
-   * Load cost history from storage
-   */
-  private loadCostHistory(): void {
-    try {
-      const stored = localStorage.getItem('ai_cost_history');
-      if (stored) {
-        this.costHistory = JSON.parse(stored);
-      }
-    } catch (error) {
-      console.warn('Failed to load cost history:', error);
-    }
-  }
-
-  /**
-   * Save cost history to storage
-   */
-  private saveCostHistory(): void {
-    try {
-      localStorage.setItem('ai_cost_history', JSON.stringify(this.costHistory));
-    } catch (error) {
-      console.warn('Failed to save cost history:', error);
-    }
-  }
-
-  /**
-   * Reset daily spending (call at midnight)
-   */
-  resetDailySpend(): void {
-    this.dailySpend = 0;
-  }
-}
-```
-
-## 🔍 Quality Assurance System
-
-Let's add a system that validates AI outputs and improves quality over time:
-
-```typescript
-// lib/ai/quality-assurance.ts
-
-export interface QualityMetrics {
-  completeness_score: number;      // 0-1: Are all required fields present?
-  coherence_score: number;         // 0-1: Does the analysis make logical sense?
-  factual_consistency: number;     // 0-1: Are facts consistent across the analysis?
-  actionability_score: number;     // 0-1: How actionable are the insights?
-  confidence_calibration: number;  // 0-1: How well-calibrated are confidence scores?
+  };
 }
 
-export interface QualityIssue {
-  type: 'missing_field' | 'inconsistency' | 'low_confidence' | 'poor_actionability';
-  severity: 'low' | 'medium' | 'high';
+export interface AnalysisTweet {
+  id: string;
+  text: string;
+  author: string;
+  created_at: string;
+  engagement_score: number;
+  quality_score: number;
+  url: string;
+}
+
+export interface AnalysisTelegramMessage {
+  id: string;
+  text: string;
+  channel: string;
+  author?: string;
+  message_date: string;
+  views: number;
+  quality_score: number;
+  url: string;
+}
+
+export interface AnalysisRSSArticle {
+  id: string;
+  title: string;
+  content?: string;
   description: string;
-  suggestion: string;
+  author?: string;
+  published_at: string;
+  source: string;
+  quality_score: number;
+  url: string;
 }
 
-export class QualityAssurance {
-  
-  /**
-   * Evaluate analysis quality
-   */
-  evaluateAnalysis(analysis: any, originalContent: any): { metrics: QualityMetrics; issues: QualityIssue[] } {
-    const metrics = this.calculateQualityMetrics(analysis, originalContent);
-    const issues = this.identifyQualityIssues(analysis, metrics);
-    
-    return { metrics, issues };
-  }
+export interface AIAnalysisResponse {
+  analysis: DigestAnalysis;
+  token_usage: TokenUsage;
+  model_info: {
+    provider: string;
+    model: string;
+    reasoning_time_ms?: number;
+  };
+  processing_time_ms: number;
+}
 
-  /**
-   * Calculate quality metrics
-   */
-  private calculateQualityMetrics(analysis: any, originalContent: any): QualityMetrics {
-    return {
-      completeness_score: this.assessCompleteness(analysis),
-      coherence_score: this.assessCoherence(analysis),
-      factual_consistency: this.assessFactualConsistency(analysis, originalContent),
-      actionability_score: this.assessActionability(analysis),
-      confidence_calibration: this.assessConfidenceCalibration(analysis)
+export interface DigestAnalysis {
+  title: string;
+  executive_summary: string;
+  key_insights: string[];
+  trending_topics: TrendingTopic[];
+  content_analysis: ContentAnalysis;
+  recommendations: string[];
+  confidence_score: number;
+}
+
+export interface TrendingTopic {
+  topic: string;
+  relevance_score: number;
+  supporting_content: string[];
+  trend_direction: 'rising' | 'stable' | 'declining';
+}
+
+export interface ContentAnalysis {
+  sentiment: {
+    overall: 'positive' | 'negative' | 'neutral';
+    confidence: number;
+    breakdown: {
+      positive: number;
+      neutral: number;
+      negative: number;
     };
-  }
-
-  /**
-   * Assess completeness of analysis
-   */
-  private assessCompleteness(analysis: any): number {
-    const requiredFields = [
-      'title', 'executive_summary', 'key_insights', 
-      'trending_topics', 'content_analysis', 'recommendations'
-    ];
-    
-    let score = 0;
-    for (const field of requiredFields) {
-      if (analysis[field]) {
-        if (Array.isArray(analysis[field])) {
-          score += analysis[field].length > 0 ? 1 : 0.5;
-        } else if (typeof analysis[field] === 'string') {
-          score += analysis[field].length > 10 ? 1 : 0.5;
-        } else {
-          score += 1;
-        }
-      }
-    }
-    
-    return score / requiredFields.length;
-  }
-
-  /**
-   * Assess logical coherence
-   */
-  private assessCoherence(analysis: any): number {
-    let score = 0.5; // Base score
-    
-    // Check if key insights align with executive summary
-    if (analysis.key_insights && analysis.executive_summary) {
-      const summaryKeywords = this.extractKeywords(analysis.executive_summary);
-      const insightKeywords = analysis.key_insights.join(' ');
-      const overlap = this.calculateKeywordOverlap(summaryKeywords, insightKeywords);
-      score += overlap * 0.3;
-    }
-    
-    // Check if recommendations align with identified issues
-    if (analysis.recommendations && analysis.trending_topics) {
-      // Simple heuristic: recommendations should relate to trending topics
-      score += 0.2;
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Assess factual consistency
-   */
-  private assessFactualConsistency(analysis: any, originalContent: any): number {
-    // This is a simplified implementation
-    // In practice, you'd want more sophisticated fact-checking
-    
-    let score = 0.7; // Assume decent consistency by default
-    
-    // Check if numbers mentioned in analysis appear in original content
-    const analysisNumbers = this.extractNumbers(JSON.stringify(analysis));
-    const contentNumbers = this.extractNumbers(JSON.stringify(originalContent));
-    
-    for (const num of analysisNumbers) {
-      if (contentNumbers.includes(num)) {
-        score += 0.1;
-      }
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Assess actionability of insights
-   */
-  private assessActionability(analysis: any): number {
-    let score = 0;
-    
-    if (analysis.recommendations) {
-      for (const rec of analysis.recommendations) {
-        // Look for action verbs and specific suggestions
-        if (this.containsActionVerbs(rec)) score += 0.2;
-        if (this.containsSpecificDetails(rec)) score += 0.2;
-      }
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Assess confidence calibration
-   */
-  private assessConfidenceCalibration(analysis: any): number {
-    // Check if confidence scores are reasonable and consistent
-    let score = 0.5;
-    
-    if (analysis.confidence_score) {
-      if (analysis.confidence_score > 0.3 && analysis.confidence_score < 0.95) {
-        score += 0.3; // Reasonable confidence range
-      }
-    }
-    
-    if (analysis.content_analysis?.sentiment?.confidence) {
-      const sentimentConfidence = analysis.content_analysis.sentiment.confidence;
-      if (sentimentConfidence > 0.5) {
-        score += 0.2;
-      }
-    }
-    
-    return Math.min(1.0, score);
-  }
-
-  /**
-   * Identify quality issues
-   */
-  private identifyQualityIssues(analysis: any, metrics: QualityMetrics): QualityIssue[] {
-    const issues: QualityIssue[] = [];
-    
-    if (metrics.completeness_score < 0.8) {
-      issues.push({
-        type: 'missing_field',
-        severity: 'high',
-        description: 'Analysis is missing required fields or has incomplete data',
-        suggestion: 'Ensure all required analysis sections are populated with meaningful content'
-      });
-    }
-    
-    if (metrics.coherence_score < 0.6) {
-      issues.push({
-        type: 'inconsistency',
-        severity: 'medium',
-        description: 'Analysis lacks logical coherence between sections',
-        suggestion: 'Review prompt design to ensure better alignment between analysis components'
-      });
-    }
-    
-    if (analysis.confidence_score && analysis.confidence_score < 0.4) {
-      issues.push({
-        type: 'low_confidence',
-        severity: 'medium',
-        description: 'AI model expressed low confidence in analysis',
-        suggestion: 'Consider providing more context or using a different analysis approach'
-      });
-    }
-    
-    if (metrics.actionability_score < 0.5) {
-      issues.push({
-        type: 'poor_actionability',
-        severity: 'low',
-        description: 'Analysis lacks specific, actionable recommendations',
-        suggestion: 'Enhance prompts to request more specific and actionable insights'
-      });
-    }
-    
-    return issues;
-  }
-
-  // Helper methods
-  private extractKeywords(text: string): string[] {
-    return text.toLowerCase()
-      .replace(/[^\w\s]/g, '')
-      .split(/\s+/)
-      .filter(word => word.length > 3);
-  }
-
-  private calculateKeywordOverlap(keywords1: string[], keywords2: string): number {
-    const words2 = keywords2.toLowerCase().split(/\s+/);
-    const matches = keywords1.filter(word => words2.includes(word));
-    return matches.length / Math.max(keywords1.length, 1);
-  }
-
-  private extractNumbers(text: string): number[] {
-    const matches = text.match(/\d+(?:\.\d+)?/g);
-    return matches ? matches.map(Number) : [];
-  }
-
-  private containsActionVerbs(text: string): boolean {
-    const actionVerbs = ['implement', 'develop', 'create', 'establish', 'build', 'design', 'optimize', 'improve', 'focus', 'invest', 'consider', 'evaluate'];
-    return actionVerbs.some(verb => text.toLowerCase().includes(verb));
-  }
-
-  private containsSpecificDetails(text: string): boolean {
-    // Look for specific timeframes, numbers, or concrete nouns
-    return /\d+/.test(text) || 
-           /(within|by|before|after)/.test(text.toLowerCase()) ||
-           /(specific|particular|detailed)/.test(text.toLowerCase());
-  }
+  };
+  themes: {
+    name: string;
+    frequency: number;
+    significance: number;
+  }[];
+  quality_distribution: {
+    high_quality_percentage: number;
+    average_engagement: number;
+    content_diversity: number;
+  };
 }
 ```
 
-## 🧪 Advanced AI Testing Suite
+## 🤖 Building the AI Service
 
-Let's create comprehensive tests for our advanced AI features:
+Let's first make sure we have all of the packages we need and update our scripts to test when complete:
 
-```typescript
-// scripts/test/test-advanced-ai.ts
+**Package dependencies needed:**
+```bash
+# Core AI SDK
+npm install ai
 
-import { config } from 'dotenv';
-config({ path: '.env.local' });
+# Provider-specific packages
+npm install @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google
+npm install ollama-ai-provider
 
-import { AIService } from '../../lib/ai/ai-service';
-import { PromptTemplateManager } from '../../lib/ai/prompt-templates';
-import { ReasoningChainManager } from '../../lib/ai/reasoning-chains';
-import { CostOptimizer } from '../../lib/ai/cost-optimizer';
-import { QualityAssurance } from '../../lib/ai/quality-assurance';
-import logger from '../../lib/logger';
-
-async function testAdvancedAI() {
-  console.log('🧠 Testing Advanced AI Techniques...\n');
-
-  try {
-    // Test 1: Prompt Templates
-    console.log('1. Testing Prompt Templates:');
-    const promptManager = new PromptTemplateManager();
-    
-    const marketTemplate = promptManager.getTemplate('market_intelligence');
-    console.log(`✅ Market intelligence template loaded: ${marketTemplate?.name}`);
-    
-    const techTemplate = promptManager.getTemplate('technical_analysis');
-    console.log(`✅ Technical analysis template loaded: ${techTemplate?.name}`);
-    
-    const newsTemplate = promptManager.getTemplate('news_synthesis');
-    console.log(`✅ News synthesis template loaded: ${newsTemplate?.name}`);
-
-    // Test template building
-    const builtPrompt = promptManager.buildPrompt('news_synthesis', {
-      timeframe: '24 hours',
-      content_count: '15',
-      priority_topics: 'AI, Technology',
-      formatted_content: 'Sample content for testing...'
-    });
-    
-    if (builtPrompt) {
-      console.log('✅ Prompt template building successful');
-      console.log(`   System prompt length: ${builtPrompt.systemPrompt.length} chars`);
-      console.log(`   User prompt length: ${builtPrompt.userPrompt.length} chars`);
-    }
-
-    // Test 2: Cost Optimization
-    console.log('\n2. Testing Cost Optimization:');
-    const costOptimizer = new CostOptimizer({
-      maxDailyCost: 10.0,
-      maxPerAnalysisCost: 2.0,
-      priorityLevels: {
-        critical: 1.5,
-        important: 0.8,
-        routine: 0.3
-      },
-      modelPreferences: {
-        low_cost: ['gpt-4o-mini', 'claude-3-haiku-20240307'],
-        balanced: ['gpt-4o', 'claude-3-5-sonnet-20241022'],
-        premium: ['claude-3-5-sonnet-20241022', 'gpt-4o']
-      }
-    });
-
-    const recommendation = costOptimizer.getOptimizationRecommendation(
-      5000, // content size
-      'important', // priority
-      'gpt-4o' // current model
-    );
-
-    console.log(`✅ Cost optimization recommendation:`);
-    console.log(`   Recommended model: ${recommendation.recommendedModel.modelName}`);
-    console.log(`   Estimated cost: $${recommendation.estimatedCost.toFixed(4)}`);
-    console.log(`   Cost savings: $${recommendation.costSavings.toFixed(4)}`);
-    console.log(`   Quality impact: ${recommendation.qualityImpact}`);
-
-    // Test 3: Quality Assurance
-    console.log('\n3. Testing Quality Assurance:');
-    const qa = new QualityAssurance();
-    
-    const mockAnalysis = {
-      title: 'AI Market Analysis',
-      executive_summary: 'AI market shows strong growth with emerging opportunities in enterprise automation',
-      key_insights: [
-        'Enterprise AI adoption accelerating',
-        'New investment in AI infrastructure',
-        'Regulatory frameworks developing'
-      ],
-      trending_topics: [
-        { topic: 'AI Automation', relevance_score: 0.9 }
-      ],
-      content_analysis: {
-        sentiment: { overall: 'positive', confidence: 0.8 }
-      },
-      recommendations: [
-        'Invest in AI infrastructure companies',
-        'Monitor regulatory developments'
-      ],
-      confidence_score: 0.75
-    };
-
-    const qualityEval = qa.evaluateAnalysis(mockAnalysis, {});
-    console.log(`✅ Quality evaluation completed:`);
-    console.log(`   Completeness: ${qualityEval.metrics.completeness_score.toFixed(2)}`);
-    console.log(`   Coherence: ${qualityEval.metrics.coherence_score.toFixed(2)}`);
-    console.log(`   Actionability: ${qualityEval.metrics.actionability_score.toFixed(2)}`);
-    console.log(`   Issues found: ${qualityEval.issues.length}`);
-
-    // Test 4: Real AI Analysis with Templates
-    console.log('\n4. Testing Template-Based Analysis:');
-    const aiService = AIService.getInstance();
-    aiService.useClaude('claude-3-5-sonnet-20241022');
-
-    const testContent = {
-      tweets: [{
-        id: 'test1',
-        text: 'Major breakthrough in AI reasoning capabilities announced by leading research lab',
-        author: 'AI_Research',
-        created_at: new Date().toISOString(),
-        engagement_score: 200,
-        quality_score: 0.9,
-        url: 'https://twitter.com/test'
-      }],
-      rss_articles: [{
-        id: 'article1',
-        title: 'The Future of Artificial Intelligence: Trends and Predictions',
-        description: 'Comprehensive analysis of AI development trends',
-        content: 'Artificial intelligence continues to evolve rapidly...',
-        author: 'Tech Expert',
-        published_at: new Date().toISOString(),
-        source: 'Tech Journal',
-        quality_score: 0.85,
-        url: 'https://example.com/article'
-      }],
-      timeframe: {
-        from: new Date(Date.now() - 24*60*60*1000).toISOString(),
-        to: new Date().toISOString()
-      },
-      metadata: {
-        total_sources: 2,
-        source_breakdown: { twitter: 1, telegram: 0, rss: 1 }
-      }
-    };
-
-    // Test with news synthesis (cost-effective)
-    const newsAnalysis = await aiService.analyzeContent({
-      content: testContent,
-      analysisType: 'summary',
-      instructions: 'Use news synthesis approach for cost-effective analysis'
-    });
-
-    console.log(`✅ News synthesis analysis completed:`);
-    console.log(`   Title: "${newsAnalysis.analysis.title}"`);
-    console.log(`   Insights: ${newsAnalysis.analysis.key_insights.length}`);
-    console.log(`   Tokens used: ${newsAnalysis.token_usage.total_tokens}`);
-    console.log(`   Processing time: ${(newsAnalysis.processing_time_ms / 1000).toFixed(2)}s`);
-
-    // Test 5: Reasoning Chain (if time permits)
-    console.log('\n5. Testing Reasoning Chains:');
-    const chainManager = new ReasoningChainManager(aiService);
-    const availableChains = chainManager.getAvailableChains();
-    
-    console.log(`✅ Available reasoning chains: ${availableChains.join(', ')}`);
-    
-    // Get chain details
-    const chainDetails = chainManager.getChainDetails('content_quality_enhancement');
-    if (chainDetails) {
-      console.log(`✅ Content quality enhancement chain:`);
-      console.log(`   Steps: ${chainDetails.steps.length}`);
-      console.log(`   Estimated cost: $${chainDetails.totalEstimatedCost}`);
-    }
-
-    console.log('\n🎉 Advanced AI techniques test completed successfully!');
-    console.log('\n💡 Key capabilities now available:');
-    console.log('   ✅ Template-based prompt engineering');
-    console.log('   ✅ Cost optimization and budget management');
-    console.log('   ✅ Quality assurance and validation');
-    console.log('   ✅ Multi-step reasoning chains');
-    console.log('   ✅ Advanced analysis workflows');
-
-  } catch (error: any) {
-    logger.error('Advanced AI test failed', error);
-    console.error('\n❌ Test failed:', error.message);
-    
-    if (error.message.includes('API_KEY')) {
-      console.log('\n💡 Make sure you have valid API keys in .env.local');
-    }
-    
-    process.exit(1);
-  }
-}
-
-testAdvancedAI();
+# TypeScript types
+npm install --save-dev @types/node
 ```
-
-
 
 **Package.json scripts to add:**
 ```json
 {
   "scripts": {
-    "test:advanced-ai": "npm run script scripts/test/test-advanced-ai.ts"
+    "test:ai": "npm run script scripts/test/test-ai.ts",
+    "test:ai:openai": "npm run script scripts/test/test-ai.ts -- --provider=openai",
+    "test:ai:claude": "npm run script scripts/test/test-ai.ts -- --provider=anthropic",
+    "test:ai:gemini": "npm run script scripts/test/test-ai.ts -- --provider=google",
+    "test:ai:ollama": "npm run script scripts/test/test-ai.ts -- --provider=ollama"
   }
 }
 ```
 
-**Test your advanced AI system:**
+**Environment variables needed:**
+
+### For Cloud Providers:
+```env
+# OpenAI (Required for OpenAI models)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Anthropic (Required for Claude models)  
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# Google (Required for Gemini models)
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key_here
+```
+
+### For Local Provider (Ollama):
+```env
+# Optional: Custom Ollama server URL (defaults to http://localhost:11434)
+OLLAMA_BASE_URL=http://localhost:11434
+
+# No API key needed for Ollama - it runs locally!
+```
+
+### Getting API Keys:
+
+**Google Gemini API Key:**
+1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Click "Create API Key"
+3. Copy the generated key to your `.env.local` file
+
+**Ollama Setup:**
 ```bash
-npm run test:advanced-ai
+# Install Ollama (macOS/Linux)
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Or on macOS with Homebrew
+brew install ollama
+
+# Start Ollama server
+ollama serve
+
+# Pull a model (in another terminal)
+ollama pull llama3.1:8b  # Good balance of performance/speed
+ollama pull qwen2.5:7b   # Alternative option
+
+# Verify it's working
+ollama list
+```
+
+Now let's create our unified AI service that works with our A.I. providers:
+
+```typescript
+// lib/ai/ai-service.ts
+
+import { openai } from '@ai-sdk/openai';
+import { anthropic } from '@ai-sdk/anthropic';
+import { google } from '@ai-sdk/google';
+import { ollama } from 'ollama-ai-provider';
+import { generateText, generateObject } from 'ai';
+import { 
+  AIModelConfig, 
+  AIAnalysisRequest, 
+  AIAnalysisResponse, 
+  TokenUsage,
+  DigestAnalysis 
+} from '../../types/ai';
+import { envConfig } from '../../config/environment';
+import logger from '../logger';
+import { ProgressTracker } from '../../utils/progress';
+
+export class AIService {
+  private static instance: AIService;
+  private currentConfig: AIModelConfig;
+
+  // Default configurations for all 4 providers
+  private static readonly DEFAULT_OPENAI_CONFIG: AIModelConfig = {
+    provider: 'openai',
+    modelName: 'gpt-4o',
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+    }
+  };
+
+  private static readonly DEFAULT_ANTHROPIC_CONFIG: AIModelConfig = {
+    provider: 'anthropic',
+    modelName: 'claude-3-5-sonnet-20241022',
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+      thinking: {
+        type: 'enabled',
+        budgetTokens: 20000,
+      }
+    }
+  };
+
+  private static readonly DEFAULT_GOOGLE_CONFIG: AIModelConfig = {
+    provider: 'google',
+    modelName: 'gemini-1.5-pro',
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+      safetySettings: [
+        {
+          category: 'HARM_CATEGORY_HATE_SPEECH',
+          threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+        },
+        {
+          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+          threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+        }
+      ]
+    }
+  };
+
+  private static readonly DEFAULT_OLLAMA_CONFIG: AIModelConfig = {
+    provider: 'ollama',
+    modelName: 'llama3.1:8b', // 8B model for good balance of speed/quality
+    options: {
+      temperature: 0.7,
+      max_tokens: 2000,
+      baseURL: 'http://localhost:11434', // Default Ollama server
+      keepAlive: '5m' // Keep model loaded for 5 minutes
+    }
+  };
+
+  private constructor(config?: AIModelConfig) {
+    this.currentConfig = config || AIService.DEFAULT_ANTHROPIC_CONFIG;
+    this.validateConfiguration();
+  }
+
+  /**
+   * Get singleton instance
+   */
+  public static getInstance(config?: AIModelConfig): AIService {
+    if (!AIService.instance) {
+      AIService.instance = new AIService(config);
+    } else if (config) {
+      AIService.instance.setConfig(config);
+    }
+    return AIService.instance;
+  }
+
+  /**
+   * Set AI model configuration
+   */
+  public setConfig(config: AIModelConfig): void {
+    this.currentConfig = config;
+    this.validateConfiguration();
+    logger.info(`AI model configured: ${config.provider}:${config.modelName}`);
+  }
+
+  /**
+   * Switch to OpenAI
+   */
+  public useOpenAI(modelName?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_OPENAI_CONFIG,
+      modelName: modelName || AIService.DEFAULT_OPENAI_CONFIG.modelName
+    });
+  }
+
+  /**
+   * Switch to Anthropic Claude
+   */
+  public useClaude(modelName?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_ANTHROPIC_CONFIG,
+      modelName: modelName || AIService.DEFAULT_ANTHROPIC_CONFIG.modelName
+    });
+  }
+
+  /**
+   * Switch to Google Gemini
+   */
+  public useGemini(modelName?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_GOOGLE_CONFIG,
+      modelName: modelName || AIService.DEFAULT_GOOGLE_CONFIG.modelName
+    });
+  }
+
+  /**
+   * Switch to Ollama (local)
+   */
+  public useOllama(modelName?: string, baseURL?: string): void {
+    this.setConfig({
+      ...AIService.DEFAULT_OLLAMA_CONFIG,
+      modelName: modelName || AIService.DEFAULT_OLLAMA_CONFIG.modelName,
+      options: {
+        ...AIService.DEFAULT_OLLAMA_CONFIG.options,
+        ...(baseURL && { baseURL })
+      }
+    });
+  }
+
+  /**
+   * Main analysis method - analyzes content and generates insights
+   */
+  async analyzeContent(request: AIAnalysisRequest): Promise<AIAnalysisResponse> {
+    const startTime = Date.now();
+    const progress = new ProgressTracker({
+      total: 4,
+      label: `AI Analysis (${this.currentConfig.provider}:${this.currentConfig.modelName})`
+    });
+
+    try {
+      // Step 1: Prepare content for analysis
+      progress.update(1, { step: 'Preparing content' });
+      const preparedContent = this.prepareContentForAnalysis(request.content);
+      
+      // Step 2: Generate analysis prompt
+      progress.update(2, { step: 'Generating prompt' });
+      const analysisPrompt = this.buildAnalysisPrompt(request, preparedContent);
+      
+      // Step 3: Call AI model
+      progress.update(3, { step: 'AI processing' });
+      const aiResponse = await this.callAIModel(analysisPrompt, request.outputFormat);
+      
+      // Step 4: Process and validate response
+      progress.update(4, { step: 'Processing response' });
+      const analysis = this.parseAndValidateResponse(aiResponse.text);
+      
+      const processingTime = Date.now() - startTime;
+      progress.complete(`Analysis completed in ${(processingTime / 1000).toFixed(2)}s`);
+
+      return {
+        analysis,
+        token_usage: this.extractTokenUsage(aiResponse),
+        model_info: {
+          provider: this.currentConfig.provider,
+          model: this.currentConfig.modelName,
+          reasoning_time_ms: aiResponse.reasoning_time_ms
+        },
+        processing_time_ms: processingTime
+      };
+
+    } catch (error: any) {
+      progress.fail(`AI analysis failed: ${error.message}`);
+      logger.error('AI analysis failed', { 
+        error: error.message,
+        provider: this.currentConfig.provider,
+        model: this.currentConfig.modelName 
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Prepare content for AI analysis with quality signals for intelligent filtering
+   * 
+   * This method doesn't just format content - it provides the AI with key signals
+   * to make intelligent filtering decisions during content analysis.
+   */
+  private prepareContentForAnalysis(content: any): string {
+    const sections: string[] = [];
+
+    // Add tweets with quality signals for AI filtering
+    if (content.tweets?.length > 0) {
+      sections.push('## TWITTER/X CONTENT');
+      sections.push(`*Note: ${content.tweets.length} tweets passed rule-based filtering. Focus on highest quality and most relevant items.*`);
+      sections.push('');
+      
+      content.tweets.forEach((tweet: any, index: number) => {
+        sections.push(`### Tweet ${index + 1}`);
+        sections.push(`**Author:** @${tweet.author}`);
+        sections.push(`**Date:** ${tweet.created_at}`);
+        
+        // Quality signals that guide AI filtering decisions
+        sections.push(`**Engagement:** ${tweet.engagement_score} (Quality: ${tweet.quality_score.toFixed(2)})`);
+        sections.push(`**Priority:** ${tweet.engagement_score > 100 ? 'HIGH' : tweet.engagement_score > 50 ? 'MEDIUM' : 'LOW'}`);
+        
+        sections.push(`**Content:** ${tweet.text}`);
+        sections.push(`**URL:** ${tweet.url}`);
+        sections.push('');
+      });
+    }
+
+    // Add Telegram messages with filtering guidance
+    if (content.telegram_messages?.length > 0) {
+      sections.push('## TELEGRAM CONTENT');
+      sections.push(`*Note: ${content.telegram_messages.length} messages from insider channels. Prioritize unique insights and breaking news.*`);
+      sections.push('');
+      
+      content.telegram_messages.forEach((msg: any, index: number) => {
+        sections.push(`### Message ${index + 1}`);
+        sections.push(`**Channel:** ${msg.channel}`);
+        sections.push(`**Author:** ${msg.author || 'Unknown'}`);
+        sections.push(`**Date:** ${msg.message_date}`);
+        
+        // Quality signals for AI filtering
+        sections.push(`**Views:** ${msg.views} (Quality: ${msg.quality_score.toFixed(2)})`);
+        sections.push(`**Signal Strength:** ${msg.views > 1000 ? 'STRONG' : msg.views > 500 ? 'MEDIUM' : 'WEAK'}`);
+        
+        sections.push(`**Content:** ${msg.text}`);
+        sections.push(`**URL:** ${msg.url}`);
+        sections.push('');
+      });
+    }
+
+    // Add RSS articles with relevance scoring
+    if (content.rss_articles?.length > 0) {
+      sections.push('## RSS ARTICLES');
+      sections.push(`*Note: ${content.rss_articles.length} articles from news sources. Focus on breaking news and unique analysis.*`);
+      sections.push('');
+      
+      content.rss_articles.forEach((article: any, index: number) => {
+        sections.push(`### Article ${index + 1}`);
+        sections.push(`**Title:** ${article.title}`);
+        sections.push(`**Source:** ${article.source}`);
+        sections.push(`**Author:** ${article.author || 'Unknown'}`);
+        sections.push(`**Date:** ${article.published_at}`);
+        
+        // Quality signals for AI filtering decisions
+        sections.push(`**Quality Score:** ${article.quality_score.toFixed(2)}`);
+        sections.push(`**Content Type:** ${article.quality_score > 0.8 ? 'PREMIUM ANALYSIS' : article.quality_score > 0.6 ? 'STANDARD NEWS' : 'BRIEF UPDATE'}`);
+        
+        sections.push(`**Summary:** ${article.description}`);
+        if (article.content) {
+          sections.push(`**Content:** ${article.content.substring(0, 1000)}${article.content.length > 1000 ? '...' : ''}`);
+        }
+        sections.push(`**URL:** ${article.url}`);
+        sections.push('');
+      });
+    }
+
+    // Add metadata
+    sections.push('## METADATA');
+    sections.push(`**Timeframe:** ${content.timeframe.from} to ${content.timeframe.to}`);
+    sections.push(`**Total Sources:** ${content.metadata.total_sources}`);
+    sections.push(`**Source Breakdown:**`);
+    sections.push(`- Twitter: ${content.metadata.source_breakdown.twitter} items`);
+    sections.push(`- Telegram: ${content.metadata.source_breakdown.telegram} items`);
+    sections.push(`- RSS: ${content.metadata.source_breakdown.rss} items`);
+
+    return sections.join('\n');
+  }
+
+  /**
+   * Call the appropriate AI model based on current configuration
+   */
+  private async callAIModel(prompt: string, outputFormat: string = 'json'): Promise<any> {
+    const { provider, modelName, options } = this.currentConfig;
+
+    const baseOptions = {
+      temperature: options.temperature || 0.7,
+      maxTokens: options.max_tokens || 2000,
+    };
+
+    try {
+      switch (provider) {
+        case 'openai':
+          return await generateText({
+            model: openai(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.reasoning_effort && { reasoningEffort: options.reasoning_effort })
+          });
+
+        case 'anthropic':
+          return await generateText({
+            model: anthropic(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.thinking && {
+              experimental_toolCallMode: 'json',
+              experimental_thinking: options.thinking.type === 'enabled',
+              ...(options.thinking.budgetTokens && {
+                experimental_thinkingBudgetTokens: options.thinking.budgetTokens
+              })
+            })
+          });
+
+        case 'google':
+          return await generateText({
+            model: google(modelName),
+            prompt,
+            ...baseOptions,
+            ...(options.safetySettings && { safetySettings: options.safetySettings })
+          });
+
+        case 'ollama':
+          return await generateText({
+            model: ollama(modelName),
+            prompt,
+            ...baseOptions
+          });
+
+        default:
+          throw new Error(`Unsupported AI provider: ${provider}`);
+      }
+    } catch (error: any) {
+      // Add provider-specific error handling
+      if (provider === 'ollama' && error?.message?.includes('ECONNREFUSED')) {
+        throw new Error('Ollama server not running. Start it with: ollama serve');
+      }
+      if (provider === 'google' && error?.message?.includes('API_KEY_INVALID')) {
+        throw new Error('Invalid Google API key. Check GOOGLE_GENERATIVE_AI_API_KEY environment variable');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Build analysis prompt that guides AI filtering and content selection
+   * 
+   * This prompt is crucial - it instructs the AI to act as an intelligent filter,
+   * not just a summarizer. The AI will select, prioritize, and curate content.
+   */
+  private buildAnalysisPrompt(request: AIAnalysisRequest, preparedContent: string): string {
+    const baseInstructions = `You are an expert content analyst and curator specializing in technology, finance, and current events. 
+
+Your job has TWO phases:
+1. INTELLIGENT FILTERING: Select only the most valuable, relevant, and newsworthy content
+2. ANALYSIS: Generate actionable insights from your curated selection
+
+CONTENT CURATION GUIDELINES:
+- IGNORE repetitive, off-topic, or low-value content
+- PRIORITIZE breaking news, unique insights, and emerging trends
+- COMBINE multiple sources discussing the same topic into single insights
+- FOCUS on content with high engagement scores and quality ratings
+- SELECT content that provides genuine value to readers
+
+ANALYSIS REQUIREMENTS:
+1. Focus on the most significant trends and patterns from your curated selection
+2. Prioritize high-quality, high-engagement content you've selected
+3. Identify emerging themes from your filtered content
+4. Provide balanced, objective analysis based on your curation
+5. Include confidence levels for your assessments
+6. Cite specific examples from the content you chose to include
+
+OUTPUT FORMAT: Return a valid JSON object with the following structure:
+{
+  "title": "Concise title summarizing the key theme (max 100 chars)",
+  "executive_summary": "3-4 sentence overview of the most important findings",
+  "key_insights": ["Array of 3-5 key insights, each 1-2 sentences"],
+  "trending_topics": [
+    {
+      "topic": "Topic name",
+      "relevance_score": 0.8,
+      "supporting_content": ["Brief quotes or references"],
+      "trend_direction": "rising|stable|declining"
+    }
+  ],
+  "content_analysis": {
+    "sentiment": {
+      "overall": "positive|negative|neutral",
+      "confidence": 0.85,
+      "breakdown": {"positive": 60, "neutral": 30, "negative": 10}
+    },
+    "themes": [
+      {"name": "Theme name", "frequency": 5, "significance": 0.9}
+    ],
+    "quality_distribution": {
+      "high_quality_percentage": 75,
+      "average_engagement": 150,
+      "content_diversity": 0.8
+    }
+  },
+  "recommendations": ["Array of 2-4 actionable recommendations"],
+  "confidence_score": 0.85
+}`;
+
+    // Add specific instructions based on analysis type
+    let specificInstructions = '';
+    switch (request.analysisType) {
+      case 'digest':
+        specificInstructions = `
+DIGEST-SPECIFIC INSTRUCTIONS:
+- Create a comprehensive daily digest format
+- Highlight breaking news and significant developments
+- Connect related stories across different sources
+- Identify market implications and business opportunities
+- Focus on actionable intelligence for decision-makers`;
+        break;
+      
+      case 'summary':
+        specificInstructions = `
+SUMMARY-SPECIFIC INSTRUCTIONS:
+- Provide concise, factual summaries
+- Maintain key details and context
+- Avoid speculation or analysis beyond the source material
+- Focus on information density and clarity`;
+        break;
+      
+      case 'sentiment':
+        specificInstructions = `
+SENTIMENT-SPECIFIC INSTRUCTIONS:
+- Perform detailed sentiment analysis
+- Identify emotional tone and market sentiment
+- Analyze sentiment trends over time
+- Provide confidence levels for sentiment assessments`;
+        break;
+    }
+
+    if (request.instructions) {
+      specificInstructions += `\n\nADDITIONAL INSTRUCTIONS:\n${request.instructions}`;
+    }
+
+    return `${baseInstructions}\n${specificInstructions}\n\nCONTENT TO ANALYZE:\n\n${preparedContent}`;
+  }
+
+
+
+  /**
+   * Parse and validate AI response
+   */
+  private parseAndValidateResponse(responseText: string): DigestAnalysis {
+    try {
+      // Try to extract JSON from the response
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // Validate required fields
+      const required = ['title', 'executive_summary', 'key_insights', 'trending_topics', 'content_analysis', 'recommendations', 'confidence_score'];
+      for (const field of required) {
+        if (!(field in parsed)) {
+          throw new Error(`Missing required field: ${field}`);
+        }
+      }
+
+      // Validate structure
+      if (!Array.isArray(parsed.key_insights)) {
+        throw new Error('key_insights must be an array');
+      }
+      
+      if (!Array.isArray(parsed.trending_topics)) {
+        throw new Error('trending_topics must be an array');
+      }
+
+      if (!parsed.content_analysis.sentiment) {
+        throw new Error('content_analysis.sentiment is required');
+      }
+
+      return parsed as DigestAnalysis;
+
+    } catch (error: any) {
+      logger.error('Failed to parse AI response', { error: error.message, response: responseText.substring(0, 500) });
+      
+      // Fallback response
+      return {
+        title: 'Analysis Failed',
+        executive_summary: 'Unable to process the content due to parsing errors.',
+        key_insights: ['Content analysis could not be completed'],
+        trending_topics: [],
+        content_analysis: {
+          sentiment: {
+            overall: 'neutral',
+            confidence: 0.0,
+            breakdown: { positive: 33, neutral: 33, negative: 33 }
+          },
+          themes: [],
+          quality_distribution: {
+            high_quality_percentage: 0,
+            average_engagement: 0,
+            content_diversity: 0
+          }
+        },
+        recommendations: ['Please review the content and try again'],
+        confidence_score: 0.0
+      };
+    }
+  }
+
+  /**
+   * Extract token usage from AI response
+   */
+  private extractTokenUsage(response: any): TokenUsage {
+    const usage = response.usage;
+    if (!usage) {
+      return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    }
+
+    return {
+      prompt_tokens: usage.promptTokens || 0,
+      completion_tokens: usage.completionTokens || 0,
+      total_tokens: usage.totalTokens || 0,
+      reasoning_tokens: usage.reasoningTokens,
+      cache_read_tokens: usage.cacheReadTokens
+    };
+  }
+
+  /**
+   * Validate configuration
+   */
+  private validateConfiguration(): void {
+    const { provider, modelName } = this.currentConfig;
+    
+    if (provider === 'openai' && !process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required for OpenAI');
+    }
+    
+    if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is required for Anthropic');
+    }
+
+    if (provider === 'google' && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      throw new Error('GOOGLE_GENERATIVE_AI_API_KEY environment variable is required for Google Gemini');
+    }
+
+    // Note: Ollama doesn't require API key validation as it's a local service
+
+    logger.debug('AI configuration validated', { provider, modelName });
+  }
+
+  /**
+   * Get current configuration
+   */
+  public getConfig(): AIModelConfig {
+    return { ...this.currentConfig };
+  }
+
+  /**
+   * Test AI connection
+   */
+  async testConnection(): Promise<boolean> {
+    try {
+      const testRequest: AIAnalysisRequest = {
+        content: {
+          tweets: [{
+            id: 'test',
+            text: 'This is a test tweet about AI technology.',
+            author: 'test_user',
+            created_at: new Date().toISOString(),
+            engagement_score: 10,
+            quality_score: 0.8,
+            url: 'https://twitter.com/test'
+          }],
+          timeframe: {
+            from: new Date().toISOString(),
+            to: new Date().toISOString()
+          },
+          metadata: {
+            total_sources: 1,
+            source_breakdown: { twitter: 1, telegram: 0, rss: 0 }
+          }
+        },
+        analysisType: 'summary'
+      };
+
+      const response = await this.analyzeContent(testRequest);
+      logger.info(`AI connection test successful: ${this.currentConfig.provider}:${this.currentConfig.modelName}`);
+      logger.info(response);
+      return true;
+
+    } catch (error) {
+      logger.error(`AI connection test failed: ${this.currentConfig.provider}:${this.currentConfig.modelName}`, error);
+      return false;
+    }
+  }
+}
+
+```
+
+## 🧪 Testing Your AI Integration
+
+Let's create a comprehensive test for our AI service:
+
+```typescript
+// scripts/test/test-ai.ts
+
+import { config } from 'dotenv';
+config({ path: '.env.local' });
+
+import { AIService } from '../../lib/ai/ai-service';
+import { AIAnalysisRequest } from '../../types/ai';
+import logger from '../../lib/logger';
+
+// Command line argument parsing
+const args = process.argv.slice(2);
+const providerArg = args.find(arg => arg.startsWith('--provider='));
+const selectedProvider = providerArg ? providerArg.split('=')[1] : 'all';
+
+// Provider configurations for testing
+const PROVIDER_CONFIGS = {
+  openai: {
+    name: 'OpenAI',
+    method: 'useOpenAI',
+    model: 'gpt-4o',
+    envVar: 'OPENAI_API_KEY',
+    costRates: { prompt: 0.0000025, completion: 0.00001 }
+  },
+  anthropic: {
+    name: 'Anthropic Claude',
+    method: 'useClaude', 
+    model: 'claude-3-5-sonnet-20241022',
+    envVar: 'ANTHROPIC_API_KEY',
+    costRates: { prompt: 0.000003, completion: 0.000015 }
+  },
+  google: {
+    name: 'Google Gemini',
+    method: 'useGemini',
+    model: 'gemini-1.5-pro',
+    envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    costRates: { prompt: 0.00000125, completion: 0.000005 }
+  },
+  ollama: {
+    name: 'Ollama (Local)',
+    method: 'useOllama', 
+    model: 'llama3.1:8b',
+    envVar: null, // No API key required
+    costRates: { prompt: 0, completion: 0 } // Local model, no cost
+  }
+} as const;
+
+async function testAIIntegration() {
+  console.log('🤖 Testing AI Integration...\n');
+
+  if (selectedProvider !== 'all') {
+    console.log(`🎯 Testing specific provider: ${selectedProvider.toUpperCase()}\n`);
+  }
+
+  try {
+    const aiService = AIService.getInstance();
+    const testResults: Array<{
+      provider: string;
+      success: boolean;
+      response?: any;
+      error?: string;
+      cost?: number;
+    }> = [];
+
+    // Determine which providers to test
+    const providersToTest = selectedProvider === 'all' 
+      ? Object.keys(PROVIDER_CONFIGS)
+      : [selectedProvider];
+
+    // Validate provider selection
+    for (const provider of providersToTest) {
+      if (!(provider in PROVIDER_CONFIGS)) {
+        console.error(`❌ Unknown provider: ${provider}`);
+        console.log('Available providers: openai, anthropic, google, ollama');
+        process.exit(1);
+      }
+    }
+
+    console.log('📋 Environment Check:');
+    let hasAllRequiredKeys = true;
+    
+    for (const provider of providersToTest) {
+      const config = PROVIDER_CONFIGS[provider as keyof typeof PROVIDER_CONFIGS];
+      if (config.envVar) {
+        const hasKey = !!process.env[config.envVar];
+        console.log(`   ${config.name}: ${hasKey ? '✅' : '❌'} (${config.envVar})`);
+        if (!hasKey) hasAllRequiredKeys = false;
+      } else {
+        console.log(`   ${config.name}: ✅ (No API key required)`);
+      }
+    }
+
+    if (!hasAllRequiredKeys) {
+      console.log('\n💡 Missing API keys. Add them to .env.local:');
+      console.log('   OPENAI_API_KEY=your_openai_key');
+      console.log('   ANTHROPIC_API_KEY=your_anthropic_key');  
+      console.log('   GOOGLE_GENERATIVE_AI_API_KEY=your_google_key');
+      console.log('   (Ollama requires no API key, just local server)');
+    }
+
+    // Test each provider
+    for (const [index, provider] of providersToTest.entries()) {
+      const config = PROVIDER_CONFIGS[provider as keyof typeof PROVIDER_CONFIGS];
+      
+      console.log(`\n${index + 1}. Testing ${config.name} Connection:`);
+      
+      try {
+        // Configure the service for this provider
+        (aiService as any)[config.method](config.model);
+        
+        // Test connection
+        const connected = await aiService.testConnection();
+        if (connected) {
+          console.log(`✅ ${config.name} connection successful`);
+        } else {
+          console.log(`❌ ${config.name} connection failed`);
+          testResults.push({ provider, success: false, error: 'Connection test failed' });
+          continue;
+        }
+
+        // Test content analysis if connection successful
+        console.log(`   Testing content analysis...`);
+        const analysisResponse = await aiService.analyzeContent(getTestContent());
+        
+        console.log(`✅ ${config.name} Analysis Complete:`);
+        console.log(`   Title: "${analysisResponse.analysis.title}"`);
+        console.log(`   Key Insights: ${analysisResponse.analysis.key_insights.length} insights`);
+        console.log(`   Trending Topics: ${analysisResponse.analysis.trending_topics.length} topics`);
+        console.log(`   Confidence: ${analysisResponse.analysis.confidence_score.toFixed(2)}`);
+        console.log(`   Tokens: ${analysisResponse.token_usage.total_tokens} (Prompt: ${analysisResponse.token_usage.prompt_tokens}, Completion: ${analysisResponse.token_usage.completion_tokens})`);
+        console.log(`   Processing Time: ${(analysisResponse.processing_time_ms / 1000).toFixed(2)}s`);
+        
+        // Calculate cost
+        const cost = calculateCost(analysisResponse.token_usage, config.costRates);
+        if (cost > 0) {
+          console.log(`   Estimated Cost: $${cost.toFixed(6)}`);
+        } else {
+          console.log(`   Cost: Free (local model)`);
+        }
+
+        testResults.push({ 
+          provider, 
+          success: true, 
+          response: analysisResponse,
+          cost 
+        });
+
+      } catch (error: any) {
+        console.log(`❌ ${config.name} test failed: ${error.message}`);
+        
+        // Provider-specific error guidance
+        if (provider === 'ollama' && error.message.includes('Ollama server not running')) {
+          console.log('   💡 Start Ollama server with: ollama serve');
+          console.log('   💡 Then pull the model with: ollama pull llama3.1:8b');
+        } else if (error.message.includes('API_KEY') || error.message.includes('API key')) {
+          console.log(`   💡 Check your ${config.envVar} environment variable`);
+        }
+        
+        testResults.push({ 
+          provider, 
+          success: false, 
+          error: error.message 
+        });
+      }
+    }
+
+    // Summary
+    console.log('\n📊 Test Summary:');
+    const successful = testResults.filter(r => r.success);
+    const failed = testResults.filter(r => !r.success);
+    
+    console.log(`   ✅ Successful: ${successful.length}/${testResults.length}`);
+    console.log(`   ❌ Failed: ${failed.length}/${testResults.length}`);
+
+    if (successful.length > 0) {
+      console.log('\n💰 Cost Comparison (for this test):');
+      successful.forEach(result => {
+        const config = PROVIDER_CONFIGS[result.provider as keyof typeof PROVIDER_CONFIGS];
+        if (result.cost! > 0) {
+          console.log(`   ${config.name}: $${result.cost!.toFixed(6)}`);
+        } else {
+          console.log(`   ${config.name}: Free (local)`);
+        }
+      });
+    }
+
+    if (successful.length >= 2) {
+      console.log('\n🔍 Response Quality Comparison:');
+      successful.slice(0, 2).forEach(result => {
+        const config = PROVIDER_CONFIGS[result.provider as keyof typeof PROVIDER_CONFIGS];
+        console.log(`   ${config.name}: "${result.response!.analysis.executive_summary.substring(0, 100)}..."`);
+      });
+    }
+
+    if (failed.length > 0) {
+      console.log('\n❌ Failed Providers:');
+      failed.forEach(result => {
+        const config = PROVIDER_CONFIGS[result.provider as keyof typeof PROVIDER_CONFIGS];
+        console.log(`   ${config.name}: ${result.error}`);
+      });
+    }
+
+    console.log('\n🎉 AI integration test completed!');
+    
+    if (successful.length > 0) {
+      console.log('\n💡 Provider Recommendations:');
+      console.log('   - OpenAI: Fast, cost-effective, good general performance');
+      console.log('   - Anthropic: Best for complex analysis and reasoning');
+      console.log('   - Google Gemini: Good balance of speed and quality');
+      console.log('   - Ollama: Free local inference, privacy-focused');
+    }
+
+    // Exit with error code if all tests failed
+    if (successful.length === 0) {
+      process.exit(1);
+    }
+
+  } catch (error: any) {
+    logger.error('AI integration test failed', error);
+    console.error('\n❌ Test failed:', error.message);
+    process.exit(1);
+  }
+}
+
+function getTestContent(): AIAnalysisRequest {
+  return {
+    content: {
+      tweets: [
+        {
+          id: 'tweet1',
+          text: 'Breaking: New AI model shows unprecedented capabilities in reasoning and mathematics',
+          author: 'AI_News',
+          created_at: '2024-01-15T10:00:00Z',
+          engagement_score: 150,
+          quality_score: 0.9,
+          url: 'https://twitter.com/AI_News/status/1'
+        },
+        {
+          id: 'tweet2', 
+          text: 'The future of work is changing rapidly with AI automation. Companies need to adapt now.',
+          author: 'TechExpert',
+          created_at: '2024-01-15T11:00:00Z',
+          engagement_score: 85,
+          quality_score: 0.8,
+          url: 'https://twitter.com/TechExpert/status/2'
+        }
+      ],
+      rss_articles: [
+        {
+          id: 'article1',
+          title: 'The Rise of Large Language Models in Enterprise',
+          description: 'How companies are integrating AI into their workflows',
+          content: 'Large language models are transforming how businesses operate...',
+          author: 'Jane Smith',
+          published_at: '2024-01-15T09:00:00Z',
+          source: 'TechCrunch',
+          quality_score: 0.95,
+          url: 'https://techcrunch.com/article1'
+        }
+      ],
+      timeframe: {
+        from: '2024-01-15T00:00:00Z',
+        to: '2024-01-15T23:59:59Z'
+      },
+      metadata: {
+        total_sources: 3,
+        source_breakdown: {
+          twitter: 2,
+          telegram: 0,
+          rss: 1
+        }
+      }
+    },
+    analysisType: 'digest'
+  };
+}
+
+function calculateCost(tokenUsage: any, rates: { prompt: number; completion: number }): number {
+  return (tokenUsage.prompt_tokens * rates.prompt) + (tokenUsage.completion_tokens * rates.completion);
+}
+
+testAIIntegration();
+```
+
+## 🧪 Testing All AI Providers
+
+Test each provider to find what works best for your use case:
+
+### Quick Provider Tests:
+```bash
+# Test OpenAI (requires API key)
+npm run test:ai:openai
+
+# Test Claude (requires API key)  
+npm run test:ai:claude
+
+# Test Gemini (requires API key, cheapest cloud option)
+npm run test:ai:gemini
+
+# Test Ollama (free, requires local setup)
+npm run test:ai:ollama
+```
+
+### Usage Examples in Your Code:
+
+```typescript
+// Example: Using different providers for different tasks
+import { AIService } from '../lib/ai/ai-service';
+
+const aiService = AIService.getInstance();
+
+// Use Ollama for development/testing (free)
+if (process.env.NODE_ENV === 'development') {
+  await aiService.useOllama('llama3.1:8b');
+}
+
+// Use Gemini for cost-effective production
+else if (process.env.AI_BUDGET === 'low') {
+  await aiService.useGemini('gemini-1.5-pro');
+}
+
+// Use Claude for highest quality analysis
+else if (process.env.AI_QUALITY === 'premium') {
+  await aiService.useClaude('claude-3-5-sonnet-20241022');
+}
+
+// Use OpenAI for balanced performance
+else {
+  await aiService.useOpenAI('gpt-4o');
+}
+
+// Now generate your digest
+const result = await aiService.analyzeContent(contentData);
+```
+
+### Performance & Cost Comparison:
+
+Based on our testing with typical digest content:
+
+| Provider | Cost/Digest | Speed | Quality | Best For |
+|----------|-------------|-------|---------|----------|
+| **Ollama** | Free | Medium | Good | Development, privacy |
+| **Gemini** | $0.05-0.25 | Fast | Very Good | Production, budget-conscious |
+| **Claude** | $0.15-0.75 | Fast | Excellent | Analysis-heavy, premium |
+| **OpenAI** | $0.10-0.50 | Fast | Excellent | Balanced, reliable |
+
+### Troubleshooting:
+
+**Ollama Issues:**
+```bash
+# If Ollama fails to connect
+ollama serve  # Make sure server is running
+
+# If model not found
+ollama pull llama3.1:8b  # Download the model first
+```
+
+**API Key Issues:**
+```bash
+# Verify your environment variables
+echo $OPENAI_API_KEY
+echo $ANTHROPIC_API_KEY  
+echo $GOOGLE_GENERATIVE_AI_API_KEY
+
+# Test API connectivity
+curl -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models
 ```
 
 ## 🎯 What We've Accomplished
 
-You now have a professional-grade AI system with advanced capabilities:
+You now have a sophisticated AI integration system that:
 
-✅ **Dynamic Prompt Templates** - Specialized prompts for different analysis types  
-✅ **Multi-Step Reasoning Chains** - Complex analysis broken into logical steps  
-✅ **Intelligent Cost Optimization** - Maximize insight per dollar spent  
-✅ **Quality Assurance System** - Validate outputs and improve over time  
-✅ **Template-Based Analysis** - Consistent, high-quality results  
-✅ **Budget Management** - Control costs while maintaining quality  
+✅ **Supports multiple AI providers** (OpenAI and Anthropic)  
+✅ **Handles structured content analysis** with comprehensive prompts  
+✅ **Provides intelligent cost management** with usage tracking  
+✅ **Includes robust error handling** and fallback responses  
+✅ **Offers configurable model selection** based on use case  
+✅ **Delivers structured, actionable insights** from raw content  
 
 ### 🔍 Pro Tips & Common Pitfalls
 
-**💡 Pro Tip:** Use reasoning chains for complex analysis, templates for consistency, and cost optimization for scale.
+**💡 Pro Tip:** Start with smaller content batches to understand token usage patterns before scaling up.
 
-**⚠️ Common Pitfall:** Don't over-engineer prompts. Start simple and iterate based on actual results.
+**⚠️ Common Pitfall:** Don't send too much content at once. AI models have context limits, and costs scale with token usage.
 
-**🔧 Performance Tip:** Cache template-generated prompts and reuse optimization recommendations for similar content.
+**🔧 Performance Tip:** Experiment with the models to fit your performance needs. For example, some argue Claude is better for complex analysis and reasoning tasks, where OpenAI is faster, more straightforward processing.
 
-**💰 Cost Optimization:** Use news synthesis templates for routine analysis, market intelligence for critical decisions.
+**💰 Cost Optimization:** Pre-filter low-quality content before sending to AI models to minimize token usage.
 
 ---
 
-### 📋 Complete Code Summary - Chapter 8
+### 📋 Complete Code Summary - Chapter 7
 
-**Advanced AI Components:**
+**Core AI Service:**
 ```typescript
-// lib/ai/prompt-templates.ts - Dynamic prompt template system
-// lib/ai/reasoning-chains.ts - Multi-step reasoning implementation
-// lib/ai/cost-optimizer.ts - Intelligent cost management
-// lib/ai/quality-assurance.ts - Output validation and improvement
+// lib/ai/ai-service.ts - Unified AI service supporting OpenAI and Anthropic
+// types/ai.ts - Comprehensive AI integration types
 ```
 
 **Testing:**
 ```typescript
-// scripts/test/test-advanced-ai.ts - Comprehensive advanced AI testing
+// scripts/test/test-ai.ts - Comprehensive AI integration test with cost analysis
 ```
 
-## 🎉 **AI Integration Complete!**
+## 🔄 Complete AI Filtering Workflow Summary
 
-With Chapters 7-8 finished, you now have a **world-class AI analysis system** that rivals enterprise solutions. Your system can:
+Now you understand the full content pipeline in your digest system:
 
-- **Analyze any content type** with specialized templates
-- **Optimize costs automatically** while maintaining quality  
-- **Chain complex reasoning** for sophisticated analysis
-- **Validate output quality** and improve over time
-- **Scale efficiently** with budget controls
+### The Complete Journey: Raw Data → Curated Insights
 
-**Tutorial Progress: ~85% Complete!** 🚀
+```typescript
+// 1. Data Collection (Chapters 4-6)
+const rawTweets = await fetchTweets(); // 500+ tweets
+const rawTelegram = await fetchTelegram(); // 100+ messages  
+const rawRSS = await fetchRSS(); // 50+ articles
 
-**Next up:** Chapters 9-11 will focus on **automation and distribution** - turning your intelligent analysis system into a fully automated content operation that runs itself and distributes insights across multiple channels.
+// 2. Rule-Based Pre-Filtering (Chapter 4-6)
+const qualityTweets = tweetProcessor.filterTweets(rawTweets); // → 100 tweets
+const qualityTelegram = filterTelegramMessages(rawTelegram); // → 30 messages
+const qualityRSS = filterRSSArticles(rawRSS); // → 20 articles
+
+// 3. AI Intelligent Filtering & Analysis (Chapter 7)
+const digest = await aiService.generateDigestContent(
+  qualityTweets,    // AI selects ~15 most relevant tweets
+  qualityTelegram,  // AI selects ~8 most valuable messages  
+  qualityRSS        // AI selects ~5 most important articles
+);
+// Result: 28 pieces of high-value content → 1 actionable digest
+```
+
+### Why This Two-Stage System is Powerful
+
+**Without AI Filtering:** You'd get overwhelming, repetitive summaries of everything
+**With AI Filtering:** You get curated, synthesized insights from the most valuable content
+
+**Cost-Benefit Analysis (with 4 provider options):**
+- **Input:** 650+ raw items → 150 quality items → 28 curated insights
+- **Cost Range:** 
+  - Ollama: Free (after setup)
+  - Gemini: ~$0.05-0.25 per digest  
+  - OpenAI: ~$0.10-0.50 per digest
+  - Claude: ~$0.15-0.75 per digest
+- **Value:** Saves 2-3 hours of manual content review daily
+- **ROI:** 500-1000x time savings (even with premium providers)
+
+The AI doesn't just summarize - it **thinks, selects, combines, and prioritizes** like a human analyst would, regardless of which provider you choose.
+
+**Next up:** Chapter 8 will show you advanced AI techniques - building sophisticated prompts, handling different content types, and creating specialized analysis workflows. We'll also explore cost optimization strategies and advanced model features!
 
 ---
 
-*Ready to automate everything? The next chapters will show you how to schedule your AI system, distribute content across social media, and build team collaboration workflows! ⚙️*
+*Ready to master advanced AI techniques? Chapter 8 will teach you prompt engineering secrets and advanced analysis patterns that separate amateur AI integrations from professional-grade systems! 🧠*
