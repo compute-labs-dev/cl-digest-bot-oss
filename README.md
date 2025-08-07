@@ -31,14 +31,10 @@ This tutorial is organized into chapters, each building upon the previous:
 6. **Chapter 6**: RSS feed processing
 7. **Chapter 7**: AI integration
 8. **Chapter 8**: Advanced AI techniques
-9a. **Chapter 9a**: Automation foundation
-9b. **Chapter 9b**: Monitoring and config
-9c. **Chapter 9c**: Testing and optimization
+9. **Chapter 9a/b/c**: Automation foundation, Monitoring and config, Testing and optimization
 10. **Chapter 10**: Social media distribution
 11. **Chapter 11**: Automation and deployment
-12a. **Chapter 12a**: Natural language intent recognition
-12b. **Chapter 12b**: Configuration management agent
-12c. **Chapter 12c**: Turning your Bot into an Agent 
+12. **Chapter 12a/b/c**: Natural language intent recognition, Configuration management agent, Turning your Bot into an Agent 
 
 ## Getting Started
 
