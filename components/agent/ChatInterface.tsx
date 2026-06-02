@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, ChatState } from '../../types/chat';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
+import { clearAgentApiToken, getAgentApiAuthorizationHeader } from './api-auth';
 import { v4 as uuidv4 } from 'uuid';
 
 export function ChatInterface() {
@@ -90,9 +91,17 @@ What would you like to do?`,
       // Send to agent API
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAgentApiAuthorizationHeader()
+        },
         body: JSON.stringify({ message: message.trim() })
       });
+
+      if (response.status === 401) {
+        clearAgentApiToken();
+        throw new Error('Invalid agent API token');
+      }
 
       const result = await response.json();
 
@@ -154,13 +163,21 @@ What would you like to do?`,
 
         const response = await fetch('/api/agent/execute', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAgentApiAuthorizationHeader()
+          },
           body: JSON.stringify({
             messageId,
             action: 'confirm',
             actionId
           })
         });
+
+        if (response.status === 401) {
+          clearAgentApiToken();
+          throw new Error('Invalid agent API token');
+        }
 
         const result = await response.json();
 

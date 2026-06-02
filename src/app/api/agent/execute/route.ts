@@ -2,12 +2,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfigurationAgent } from '../../../../../lib/agent/configuration-agent';
+import { requireAgentAuthorization } from '../../../../../lib/api/agent-auth';
 import { pendingActions } from '../shared-storage';
 import logger from '../../../../../lib/logger';
 
 const configAgent = new ConfigurationAgent();
 
 export async function POST(request: NextRequest) {
+  const unauthorized = requireAgentAuthorization(request);
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   try {
     const { messageId, action, actionId } = await request.json();
 

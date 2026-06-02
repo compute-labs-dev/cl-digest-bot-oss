@@ -10,6 +10,7 @@
     "lint": "next lint",
     "script": "ts-node -P scripts/tsconfig.json",
     "test:advanced-ai": "npm run script scripts/test/test-advanced-ai.ts",
+    "test:agent-api-auth": "npm run script scripts/test/test-agent-api-auth.ts",
     "test:agent-ui": "npm run build && npm run start",
     "test:automation": "npm run script scripts/test/test-automation-complete.ts",
     "test:ai": "npm run script scripts/test/test-ai.ts",

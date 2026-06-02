@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { IntentParser } from '../../../../../lib/agent/intent-parser';
 import { ConfigurationAgent } from '../../../../../lib/agent/configuration-agent';
+import { requireAgentAuthorization } from '../../../../../lib/api/agent-auth';
 import { ActionPreview, PreviewChange } from '../../../../../types/chat';
 import logger from '../../../../../lib/logger';
 
@@ -12,6 +13,11 @@ const configAgent = new ConfigurationAgent();
 import { pendingActions } from '../shared-storage';
 
 export async function POST(request: NextRequest) {
+  const unauthorized = requireAgentAuthorization(request);
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   try {
     const { message } = await request.json();
 
